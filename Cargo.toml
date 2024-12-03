@@ -3,5 +3,6 @@ name = "llmtoolbox"
 version = "0.0.1"
 edition = "2024"
 repository = "https://github.com/mcmah309/llmtoolbox"
+license = "Apache-2.0"
 
 [dependencies]
