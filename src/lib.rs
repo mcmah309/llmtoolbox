@@ -8,13 +8,13 @@ pub use llmtool::*;
 pub use serde_json::{from_value, json, Value};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
-pub struct ToolBox {
-    _tools: Vec<Box<dyn Tool<Box<dyn Any>>>>,
+pub struct ToolBox<R> {
+    _tools: Vec<Box<dyn Tool<R>>>,
     _schema: Map<String, Value>,
     _validators: HashMap<String, Validator>,
 }
 
-impl ToolBox {
+impl<R> ToolBox<R> {
     pub fn new() -> Self {
         Self {
             _tools: Vec::new(),
@@ -27,7 +27,7 @@ impl ToolBox {
 
     /// Adds the `tool` to this [`Toolbox`]. If a tool with the same name already exists, will return
     /// Err with the tool.
-    pub fn add_tool<T: Tool<Box<dyn Any>> + 'static>(
+    pub fn add_tool<T: Tool<R> + 'static>(
         &mut self,
         tool: T,
     ) -> Result<(), T> {
@@ -43,7 +43,7 @@ impl ToolBox {
     }
 
     /// Calls the tool with the given name and args.
-    pub fn call(&self, tool_call: ToolCallArgs) -> Result<Box<dyn Any>, ToolCallError> {
+    pub fn call(&self, tool_call: ToolCallArgs) -> Result<R, ToolCallError> {
         for tool in &self._tools {
             if tool.name() == tool_call.name {
                 return match tool.run(tool_call.args) {
@@ -57,12 +57,12 @@ impl ToolBox {
         }))
     }
 
-    pub fn call_from_str(&self, tool_call: &str) -> Result<Box<dyn Any>, StrToolCallError> {
+    pub fn call_from_str(&self, tool_call: &str) -> Result<R, StrToolCallError> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
         self.call(tool_call).coerce()
     }
 
-    pub fn call_from_value(&self, tool_call: Value) -> Result<Box<dyn Any>, ValueToolCallError> {
+    pub fn call_from_value(&self, tool_call: Value) -> Result<R, ValueToolCallError> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
         self.call(tool_call).coerce()
     }

@@ -44,21 +44,7 @@ pub mod toolbox {
 
     //************************************************************************//
 
-    const SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
-        // Box::leak(Box::new(json!({
-        //     "type": "function",
-        //     "function": {
-        //         "name": "greeting",
-        //         "description": "greets someone",
-        //         "parameters": {
-        //             "text": {
-        //                 "type": "string",
-        //                 "description": "The text to greet with"
-        //             },
-        //         },
-        //         "required": ["text"]
-        //     }
-        // })))
+    const MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
         Box::leak(Box::new(json!({
             "type": "object",
             "properties": {
@@ -82,45 +68,83 @@ pub mod toolbox {
         })))
     });
 
-    const VALIDATOR: LazyCell<&'static Validator> = LazyCell::new(|| {
-        let schema = *SCHEMA;
+    const MYTOOL_VALIDATOR: LazyCell<&'static Validator> = LazyCell::new(|| {
+        let schema = *MYTOOL_SCHEMA;
         Box::leak(Box::new(Validator::new(schema).expect(
             "The macro should not be able to create an invalid schema",
         )))
     });
 
-    impl Tool<Box<dyn Any>> for MyTool {
+    impl Tool<String> for MyTool {
         fn name(&self) -> &'static str {
             "greeting"
         }
 
         fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
-            let x = SCHEMA.as_object().unwrap();
-            x
+            MYTOOL_SCHEMA.as_object().unwrap()
         }
 
         fn validator(&self) -> &'static jsonschema::Validator {
-            *VALIDATOR
+            *MYTOOL_VALIDATOR
+        }
+
+        fn run(
+            &self,
+            args: serde_json::Map<String, serde_json::Value>,
+        ) -> Result<String, Box<dyn std::error::Error>> {
+            let text = args
+                .get("text")
+                .ok_or("No greeting found")?
+                .as_str()
+                .ok_or("Not a string")?;
+            Ok(self.greet(text))
+        }
+    }
+
+    impl Tool<Box<dyn Any>> for MyTool {
+        fn name(&self) -> &'static str {
+            <Self as Tool<String>>::name(self)
+        }
+
+        fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
+            <Self as Tool<String>>::schema(self)
+        }
+
+        fn validator(&self) -> &'static jsonschema::Validator {
+            <Self as Tool<String>>::validator(self)
         }
 
         fn run(
             &self,
             args: serde_json::Map<String, serde_json::Value>,
         ) -> Result<Box<dyn Any>, Box<dyn std::error::Error>> {
-            let text = args
-                .get("text")
-                .ok_or("No greeting found")?
-                .as_str()
-                .ok_or("Not a string")?;
-            Ok(Box::new(self.greet(text)))
+            <Self as Tool<String>>::run(self, args).map(|e| Box::new(e) as Box<dyn Any>)
         }
+    }
 
-        //************************************************************************//
+    //************************************************************************//
+
+    #[test]
+    fn string_tool_works() {
+        let mut toolbox: ToolBox<String> = ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let mut map = Map::new();
+        map.insert("name".to_string(), Value::String("greeting".to_string()));
+        let mut args = Map::new();
+        args.insert(
+            "text".to_string(),
+            Value::String("This is a greeting".to_string()),
+        );
+        map.insert("args".to_string(), Value::Object(args));
+        let tool_call_value: Value = Value::Object(map);
+        let tool_call = toolbox.parse_value_tool_call(tool_call_value).unwrap();
+        let message = toolbox.call(tool_call).unwrap();
+        println!("End: {message}")
     }
 
     #[test]
-    fn into_works_correctly() {
-        let mut toolbox = ToolBox::new();
+    fn dyn_tool_works() {
+        let mut toolbox: ToolBox<Box<dyn Any>> = ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut map = Map::new();
         map.insert("name".to_string(), Value::String("greeting".to_string()));
