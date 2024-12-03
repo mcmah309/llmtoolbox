@@ -3,5 +3,14 @@
 version = 4
 
 [[package]]
+name = "llmtool"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e62745a40058f1af550fe253ff118335704ba32fa2ea5a8430f204cf3984f622"
+
+[[package]]
 name = "llmtoolbox"
 version = "0.0.1"
+dependencies = [
+ "llmtool",
+]

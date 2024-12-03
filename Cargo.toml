@@ -7,3 +7,4 @@ repository = "https://github.com/mcmah309/llmtoolbox"
 license = "Apache-2.0"
 
 [dependencies]
+llmtool = "0.0.1"
