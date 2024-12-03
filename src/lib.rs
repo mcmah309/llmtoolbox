@@ -6,7 +6,7 @@ use serde_json::Map;
 pub use llmtool::*;
 pub use serde_json::{from_value, json, Value};
 
-struct ToolBox {
+pub struct ToolBox {
     _tools: Vec<Box<dyn Tool<Box<dyn Any>>>>,
     _schema: Value,
 }
@@ -33,39 +33,47 @@ impl ToolBox {
         Ok(())
     }
 
-    fn call(&self, tool_call: ToolCall) -> ToolCallResult {
+    fn call(&self, tool_call: ToolCallArgs) -> Result<Box<dyn Any>, ToolCallError> {
         for tool in &self._tools {
             if tool.name() == tool_call.name {
                 return match tool.run(tool_call.args) {
-                    Ok(okay) => ToolCallResult::Ok(okay),
-                    Err(error) => ToolCallResult::Err(error),
+                    Ok(okay) => Ok(okay),
+                    Err(error) => Err(ToolCallError::Tool(error)),
                 };
             }
         }
-        ToolCallResult::ToolNotFound
+        Err(ToolCallError::ToolNotFound(ToolNotFoundError {
+            tool_call: tool_call,
+        }))
     }
 
     pub fn schema(&self) -> &Value {
         &self._schema
     }
 
-    pub fn call_from_str(&self, tool_call: &str) -> Result<ToolCallResult, StrToToolCallParseError> {
+    pub fn call_from_str(&self, tool_call: &str) -> Result<Box<dyn Any>, StrToolCallError> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
-        Ok(self.call(tool_call))
+        self.call(tool_call).coerce()
     }
 
-    pub fn call_from_value(&self, tool_call: Value) -> Result<ToolCallResult, ValueToToolCallParseError> {
+    pub fn call_from_value(&self, tool_call: Value) -> Result<Box<dyn Any>, ValueToolCallError> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
-        Ok(self.call(tool_call))
+        self.call(tool_call).coerce()
     }
 
     /// Parses the input string.
-    pub fn parse_str_tool_call(&self, input: &str) -> Result<ToolCall, StrToToolCallParseError> {
+    pub fn parse_str_tool_call(
+        &self,
+        input: &str,
+    ) -> Result<ToolCallArgs, StrToToolCallParseError> {
         let value = serde_json::from_str::<Value>(input)?;
         self.parse_value_tool_call(value).coerce()
     }
 
-    pub fn parse_value_tool_call(&self, input: Value) -> Result<ToolCall, ValueToToolCallParseError2> {
+    pub fn parse_value_tool_call(
+        &self,
+        input: Value,
+    ) -> Result<ToolCallArgs, ValueToToolCallParseError> {
         match input {
             Value::Object(mut map) => {
                 let name;
@@ -81,33 +89,77 @@ impl ToolBox {
                     args = None;
                 };
                 let (name, args) = match (name, args) {
-                    (None, None) => return Err(ValueToToolCallParseError2 {has_name: false, has_args: false, ..Default::default()}),
-                    (None, Some(_)) => return Err(ValueToToolCallParseError2 {has_name: false, ..Default::default() }),
-                    (Some(_), None) => return Err(ValueToToolCallParseError2 { has_args: false, ..Default::default() }),
+                    (None, None) => {
+                        return Err(ValueToToolCallParseError {
+                            has_name: false,
+                            has_args: false,
+                            ..Default::default()
+                        })
+                    }
+                    (None, Some(_)) => {
+                        return Err(ValueToToolCallParseError {
+                            has_name: false,
+                            ..Default::default()
+                        })
+                    }
+                    (Some(_), None) => {
+                        return Err(ValueToToolCallParseError {
+                            has_args: false,
+                            ..Default::default()
+                        })
+                    }
                     (Some(name), Some(args)) => (name, args),
-                }
+                };
                 let name = match name {
                     Value::String(name) => name,
-                    _ => return Err(ValueToToolCallParseError2 { is_name_string: false, ..Default::default()}),
+                    _ => {
+                        return Err(ValueToToolCallParseError {
+                            is_name_string: false,
+                            ..Default::default()
+                        })
+                    }
                 };
                 let args = match args {
                     Value::Object(args) => args,
-                    _ => return Err(ValueToToolCallParseError2 { is_args_json: false, ..Default::default() }),
+                    _ => {
+                        return Err(ValueToToolCallParseError {
+                            is_args_json_object: false,
+                            ..Default::default()
+                        })
+                    }
                 };
-                return Ok(ToolCall {
+                return Ok(ToolCallArgs {
                     name: name,
                     args: args,
                 });
             }
-            _ => return Err(ValueToToolCallParseError2 { is_input_valid: false, ..Default::default() }),
+            _ => {
+                return Err(ValueToToolCallParseError {
+                    is_valid_json: false,
+                    ..Default::default()
+                })
+            }
         };
     }
 }
 
-enum ToolCallResult {
-    ToolNotFound,
-    Ok(Box<dyn Any>),
-    Err(Box<dyn Error>),
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct ToolCallArgs {
+    name: String,
+    args: Map<String, Value>,
+}
+
+#[derive(Debug)]
+pub struct ToolNotFoundError {
+    tool_call: ToolCallArgs,
+}
+
+impl Error for ToolNotFoundError {}
+
+impl Display for ToolNotFoundError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Tool not found with name `{}`", self.tool_call.name)
+    }
 }
 
 pub trait Tool<T>: Send + Sync {
@@ -124,10 +176,7 @@ pub trait Tool<T>: Send + Sync {
     fn run(&self, args: Map<String, Value>) -> Result<T, Box<dyn Error>>; //todo make async
 }
 
-struct ToolCall {
-    name: String,
-    args: Map<String, Value>,
-}
+//************************************************************************//
 
 error_set::error_set! {
 
@@ -136,67 +185,53 @@ error_set::error_set! {
     /// Thus it is okay to pass this back to the llm to try again.
     StrToToolCallParseError = {
         #[display("The tool call is not valid json")]
-        CouldNotConvert(serde_json::Error)
-    } || ValueToToolCallParseError;
+        CouldNotConvert(serde_json::Error),
+        ValueToToolCallParseError(ValueToToolCallParseError)
+    };
 
-    /// Error parsing [`Value`] into a [`ToolCall`]. 
-    /// The display message for this type is human/llm readable.
-    /// Thus it is okay to pass this back to the llm to try again.
-    ValueToToolCallParseError = {
-        #[display("The tool call is missing the 'name' param")]
-        MissingName {
-            args: Value,
-        },
-        #[display("The tool call is missing the 'args' param")]
-        MissingArgs {
-            name: String,
-            map: Map<String, Value>
-        },
-        #[display("The tool call is missing both the 'name' and 'args' params")]
-        MissingNameAndArgs {
-            map: Map<String, Value>
-        },
-        #[display("The extracted tool call 'name' param is not a string")]
-        NameNotAString {
-            name: Value
-        },
-        #[display("The extracted tool call 'args' param is not a json object")]
-        ArgsNotAMap {
-            name: String,
-            args: Value
-        },
-        #[display("The tool call is not a json object")]
-        InputNotAJsonObject {
-            input: Value
-        },
+    StrToolCallError = StrToToolCallParseError || ToolCallError;
+
+    ValueToolCallError = {
+        ValueToToolCallParseError(ValueToToolCallParseError)
+    } || ToolCallError;
+
+    ToolCallError = {
+        ToolNotFound(ToolNotFoundError),
+        /// The tool execution failed.
+        Tool(Box<dyn Error>),
     };
 }
 
-
-struct ValueToToolCallParseError2 {
-    is_input_valid: bool,
+/// Error parsing a [`Value`] into a [`ToolCall`]
+/// The display message for this type is human/llm readable.
+/// Thus it is okay to pass this back to the llm to try again.
+#[derive(Debug)]
+pub struct ValueToToolCallParseError {
+    is_valid_json: bool,
     has_name: bool,
     is_name_string: bool,
     has_args: bool,
-    is_args_json: bool,
+    is_args_json_object: bool,
 }
 
-impl Default for ValueToToolCallParseError2 {
+impl Error for ValueToToolCallParseError {}
+
+impl Default for ValueToToolCallParseError {
     fn default() -> Self {
         Self {
-            is_input_valid: true,
+            is_valid_json: true,
             has_name: true,
             is_name_string: true,
             has_args: true,
-            is_args_json: true,
+            is_args_json_object: true,
         }
     }
 }
 
-impl Display for ValueToToolCallParseError2 {
+impl Display for ValueToToolCallParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut out = "Failed to fully parse tool call input.".to_string();
-        if !self.is_input_valid {
+        if !self.is_valid_json {
             out.push_str(" The input is not a json object.");
         }
         if !self.has_name {
@@ -208,7 +243,7 @@ impl Display for ValueToToolCallParseError2 {
         if !self.has_args {
             out.push_str(" The input is missing the 'args' param.");
         }
-        if !self.is_args_json {
+        if !self.is_args_json_object {
             out.push_str(" The extracted 'args' param is not a json object.");
         }
         write!(f, "{}", out)
