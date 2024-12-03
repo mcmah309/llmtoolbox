@@ -1,5 +1,6 @@
 [package]
 name = "llmtoolbox"
+description="A common API for turning Rust code into callable functions for llms"
 version = "0.0.1"
 edition = "2024"
 repository = "https://github.com/mcmah309/llmtoolbox"
