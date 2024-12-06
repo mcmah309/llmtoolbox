@@ -1,162 +1,157 @@
 #[cfg(test)]
-pub mod basic {
-    //     use auto_toolbox::toolbox;
-    //     //use llmtoolbox::toolbox;
-    //     use serde_json::json;
-
-    //     struct MyToolChest;
-
-    //     #[toolbox] // this makes the MyToolChest struct into a toolbox giving it the `get_impl_json` associated function
-    // impl MyToolChest {
-    //     /// `bolt_location` - Location of bolt in need of tightening
-    //     pub fn bolt_tightener(bolt_location: String) -> Result<String, std::io::Error> {
-    //         // TODO add bolt tightening logic
-    //         Ok(format!("I might have tightend the bolt located here: {}", bolt_location))
-    //     }
-    // }
-
-    //     #[test]
-    //     fn into_works_correctly() {
-
-    //     }
-}
-
-#[cfg(test)]
 pub mod toolbox {
-    use std::{any::Any, cell::LazyCell};
+    use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible, error::Error};
 
     use jsonschema::Validator;
-    use llmtoolbox::{Tool, ToolBox};
+    use llmtoolbox::{FunctionCall, Tool, ToolBox};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
     struct MyTool;
 
+    // #[derive(LllmTool)]
     impl MyTool {
         fn new() -> Self {
             Self
         }
 
+        // #[tool]
         fn greet(&self, greeting: &str) -> String {
+            println!("Greetings!");
             format!("This is the greeting `{greeting}`")
+        }
+
+        // #[tool]
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            0
         }
     }
 
     //************************************************************************//
 
+    // https://platform.openai.com/docs/api-reference/runs/submitToolOutputs
     const MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
-        Box::leak(Box::new(json!({
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "function name."
+        Box::leak(Box::new(json!(
+        {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "greet",
+                        "description": "",
+                        "parameters": *MYTOOL_GREETING_PARAMETERS_SCHEMA
+                    }
                 },
-                "args": {
-                    "type": "object",
-                    "description": "arguments for function",
-                    "properties": {
-                        "text": {
-                            "type": "string",
-                            "description": "The text to greet with"
-                        }
-                    },
-                    "required": ["text"]
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "goodbye",
+                        "description": "",
+                        "parameters": *MYTOOL_GOODBYE_PARAMETERS_SCHEMA
+                    }
                 }
-            },
-            "required": ["name", "args"]
-        })))
-    });
-
-    const MYTOOL_VALIDATOR: LazyCell<&'static Validator> = LazyCell::new(|| {
-        let schema = *MYTOOL_SCHEMA;
-        Box::leak(Box::new(Validator::new(schema).expect(
-            "The macro should not be able to create an invalid schema",
+            ]
+        }
         )))
     });
 
-    impl Tool<String> for MyTool {
-        fn name(&self) -> &'static str {
-            "greeting"
+    const MYTOOL_GREETING_PARAMETERS_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
+        Box::leak(Box::new(json!(
+            {
+                "type": "object",
+                "properties": {
+                    "greeting": {
+                    "type": "string",
+                    "description": "The greeting to give"
+                    }
+                },
+                "required": ["greeting"]
+            }
+        )))
+    });
+
+    const MYTOOL_GOODBYE_PARAMETERS_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
+        Box::leak(Box::new(json!(
+            {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        )))
+    });
+
+    // Note: Infallible since `greeting` does not return a result.
+    impl Tool<Box<dyn Any>, Infallible> for MyTool {
+        fn function_names(&self) -> &[&'static str] {
+            &["greet", "goodbye"]
         }
 
-        fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
+        fn function_name_to_validator(&self) -> HashMap<&'static str, jsonschema::Validator> {
+            let mut map = HashMap::new();
+            const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
+            let schema = *MYTOOL_GREETING_PARAMETERS_SCHEMA;
+            map.insert("greet", Validator::new(schema).expect(EXPECT_MSG));
+            let schema = *MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
+            map.insert("goodbye", Validator::new(schema).expect(EXPECT_MSG));
+            map
+        }
+
+        fn schema(&self) -> &'static Map<String, Value> {
             MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        fn validator(&self) -> &'static jsonschema::Validator {
-            *MYTOOL_VALIDATOR
-        }
-
-        fn run(
-            &self,
-            args: serde_json::Map<String, serde_json::Value>,
-        ) -> Result<String, Box<dyn std::error::Error>> {
-            let text = args
-                .get("text")
-                .ok_or("No greeting found")?
-                .as_str()
-                .ok_or("Not a string")?;
-            Ok(self.greet(text))
-        }
-    }
-
-    impl Tool<Box<dyn Any>> for MyTool {
-        fn name(&self) -> &'static str {
-            <Self as Tool<String>>::name(self)
-        }
-
-        fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
-            <Self as Tool<String>>::schema(self)
-        }
-
-        fn validator(&self) -> &'static jsonschema::Validator {
-            <Self as Tool<String>>::validator(self)
-        }
-
-        fn run(
-            &self,
-            args: serde_json::Map<String, serde_json::Value>,
-        ) -> Result<Box<dyn Any>, Box<dyn std::error::Error>> {
-            <Self as Tool<String>>::run(self, args).map(|e| Box::new(e) as Box<dyn Any>)
+        fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<Box<dyn Any>, Infallible> {
+            const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
+            match name {
+                "greet" => {
+                    let greet = parameters["greeting"].as_str().expect(EXPECT_MSG);
+                    return Ok(Box::new(self.greet(greet)));
+                }
+                "goodbye" => {
+                    return Ok(Box::new(self.goodbye()));
+                }
+                _ => unreachable!("`run` should only be called by `ToolBox` and `ToolBox` will never call `run` unless the function exists")
+            };
         }
     }
 
     //************************************************************************//
 
-    #[test]
-    fn string_tool_works() {
-        let mut toolbox: ToolBox<String> = ToolBox::new();
-        toolbox.add_tool(MyTool::new()).unwrap();
-        let mut map = Map::new();
-        map.insert("name".to_string(), Value::String("greeting".to_string()));
-        let mut args = Map::new();
-        args.insert(
-            "text".to_string(),
-            Value::String("This is a greeting".to_string()),
-        );
-        map.insert("args".to_string(), Value::Object(args));
-        let tool_call_value: Value = Value::Object(map);
-        let tool_call = toolbox.parse_value_tool_call(tool_call_value).unwrap();
-        let message = toolbox.call(tool_call).unwrap();
-        println!("End: {message}")
-    }
+    // #[test]
+    // fn string_tool_works() {
+    //     let mut toolbox: ToolBox<String, Box<dyn Error>> = ToolBox::new();
+    //     toolbox.add_tool(MyTool::new()).unwrap();
+    //     let mut map = Map::new();
+    //     map.insert("name".to_string(), Value::String("greeting".to_string()));
+    //     let mut parameters = Map::new();
+    //     parameters.insert(
+    //         "text".to_string(),
+    //         Value::String("This is a greeting".to_string()),
+    //     );
+    //     map.insert("parameters".to_string(), Value::Object(parameters));
+    //     let tool_call_value: Value = Value::Object(map);
+    //     let tool_call = toolbox.parse_value_tool_call(tool_call_value).unwrap();
+    //     let message = toolbox.call(tool_call).unwrap();
+    //     println!("End: {message}")
+    // }
 
     #[test]
     fn dyn_tool_works() {
-        let mut toolbox: ToolBox<Box<dyn Any>> = ToolBox::new();
+        let mut toolbox: ToolBox<Box<dyn Any>, Infallible> = ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
-        let mut map = Map::new();
-        map.insert("name".to_string(), Value::String("greeting".to_string()));
-        let mut args = Map::new();
-        args.insert(
-            "text".to_string(),
-            Value::String("This is a greeting".to_string()),
-        );
-        map.insert("args".to_string(), Value::Object(args));
-        let tool_call_value: Value = Value::Object(map);
-        let tool_call = toolbox.parse_value_tool_call(tool_call_value).unwrap();
-        let message = toolbox.call(tool_call).unwrap();
+        let tool_call_value = json!({
+            "name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        let tool_call = toolbox.parse_value_tool_call(tool_call_value);
+        let tool_call = match tool_call {
+            Ok(okay) => okay,
+            Err(error) => panic!("{error}"),
+        };
+        let message = toolbox.call(&tool_call).unwrap();
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),

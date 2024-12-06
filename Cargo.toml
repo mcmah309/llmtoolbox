@@ -10,7 +10,7 @@ license = "Apache-2.0"
 llmtool = { version = "=0.0.1", path = "llmtool" }
 
 serde_json = "1"
-error_set = "0.7.0"
+error_set = "0.8.2"
 jsonschema = "0.26"
 
 [dev-dependencies]

@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, error::Error, fmt::Display};
+use std::{any::Any, collections::HashMap, error::Error, fmt::Display, ops::Deref};
 
 use error_set::CoerceResult;
 use jsonschema::Validator;
@@ -8,18 +8,21 @@ pub use llmtool::*;
 pub use serde_json::{from_value, json, Value};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
-pub struct ToolBox<R> {
-    _tools: Vec<Box<dyn Tool<R>>>,
-    _schema: Map<String, Value>,
-    _validators: HashMap<String, Validator>,
+pub struct ToolBox<O: 'static, E: Error + 'static> {
+    /// all the tools that the llm can call
+    all_tools: Vec<Box<dyn Tool<O, E>>>,
+    /// schema to be sent to the llm
+    schema: Map<String, Value>,
+    /// tool name to parameter validator
+    tool_name_to_validator: HashMap<&'static str, Validator>,
 }
 
-impl<R> ToolBox<R> {
+impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
     pub fn new() -> Self {
         Self {
-            _tools: Vec::new(),
-            _schema: Map::new(),
-            _validators: HashMap::new(),
+            all_tools: Vec::new(),
+            schema: Map::new(),
+            tool_name_to_validator: HashMap::new(),
         }
     }
 
@@ -27,86 +30,91 @@ impl<R> ToolBox<R> {
 
     /// Adds the `tool` to this [`Toolbox`]. If a tool with the same name already exists, will return
     /// Err with the tool.
-    pub fn add_tool<T: Tool<R> + 'static>(
-        &mut self,
-        tool: T,
-    ) -> Result<(), T> {
-        if self._tools.iter().any(|e| e.as_ref().name() == tool.name()) {
-            return Err(tool);
+    pub fn add_tool<T: Tool<O, E>>(&mut self, tool: T) -> Result<(), T> {
+        let tool_names_to_validators = tool.function_name_to_validator();
+        for tool_name in tool_names_to_validators.keys() {
+            if self.tool_name_to_validator.contains_key(*tool_name) {
+                return Err(tool);
+            }
         }
-        let validator = Validator::new(&Value::Object(tool.schema().clone()))
-            .expect("The macro should not be able to create an invalid schema"); //todo remove
-        self._validators.insert(tool.name().to_owned(), validator);
-        self._schema.extend(tool.schema().clone());
-        self._tools.push(Box::new(tool));
+        self.tool_name_to_validator.extend(tool_names_to_validators);
+        self.schema.extend(tool.schema().clone());
+        self.all_tools.push(Box::new(tool));
         Ok(())
     }
 
-    /// Calls the tool with the given name and args.
-    pub fn call(&self, tool_call: ToolCallArgs) -> Result<R, ToolCallError> {
-        for tool in &self._tools {
-            if tool.name() == tool_call.name {
-                return match tool.run(tool_call.args) {
-                    Ok(okay) => Ok(okay),
-                    Err(error) => Err(ToolCallError::Tool(error)),
-                };
+    /// Calls the tool with the given name and parameters.
+    pub fn call(&self, function_call: &FunctionCall) -> Result<O, E> {
+        for tool in &self.all_tools {
+            for function_name in tool.function_names() {
+                if *function_name == function_call.name {
+                    return match tool.run(&function_call.name, &function_call.parameters) {
+                        Ok(okay) => Ok(okay),
+                        Err(error) => Err(error),
+                    };
+                }
             }
         }
-        Err(ToolCallError::ToolNotFound(ToolNotFoundError {
-            tool_call: tool_call,
-        }))
+        panic!("For a `ToolCall` can only be created from a `ToolBox`, for it not to be found, it must have been \
+        created by another `ToolBox`.
+        ") // todo make it so another toolbox could not create the tool call. Using the type system somehow? make them static? thread local static and non-send?
     }
 
-    pub fn call_from_str(&self, tool_call: &str) -> Result<R, StrToolCallError> {
+    pub fn call_from_str(&self, tool_call: &str) -> Result<O, StrToolCallError<E>> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
-        self.call(tool_call).coerce()
+        self.call(&tool_call).map_err(|e| StrToolCallError::Tool(e))
     }
 
-    pub fn call_from_value(&self, tool_call: Value) -> Result<R, ValueToolCallError> {
+    pub fn call_from_value(&self, tool_call: Value) -> Result<O, ValueToolCallError<E>> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
-        self.call(tool_call).coerce()
+        self.call(&tool_call)
+            .map_err(|e| ValueToolCallError::Tool(e))
     }
 
     pub fn schema(&self) -> &Map<String, Value> {
-        &self._schema
+        &self.schema
     }
 
     /// Parses the input string.
-    pub fn parse_str_tool_call(
-        &self,
-        input: &str,
-    ) -> Result<ToolCallArgs, StrToToolCallParseError> {
+    pub fn parse_str_tool_call(&self, input: &str) -> Result<FunctionCall, StrToolCallParseError> {
         let value = serde_json::from_str::<Value>(input)?;
         self.parse_value_tool_call(value).coerce()
     }
 
     fn get_validator(&self, name: &str) -> Option<&Validator> {
-        self._validators.get(name)
+        self.tool_name_to_validator.get(name)
     }
 
     pub fn parse_value_tool_call(
         &self,
         input: Value,
-    ) -> Result<ToolCallArgs, ValueToToolCallParseError> {
+    ) -> Result<FunctionCall, ValueToolCallParseError> {
         let name = match input.get("name") {
             Some(name) => name,
-            None => return Err(ValueToToolCallParseError::MissingName { input: input }),
+            None => return Err(ValueToolCallParseError::MissingName { input: input }),
         };
         let name = match name.as_str() {
             Some(name) => name,
-            None => return Err(ValueToToolCallParseError::NameNotAString { input: input }),
+            None => return Err(ValueToolCallParseError::NameNotAString { input: input }),
         };
         let validator = match self.get_validator(name) {
             Some(validator) => validator,
             None => {
                 let name = name.to_owned();
-                return Err(ValueToToolCallParseError::ToolDoesNotExist {
+                return Err(ValueToolCallParseError::ToolDoesNotExist {
                     input: input,
                     name: name,
                 });
             }
         };
-        if let Err(error) = validator.validate(&input) {
+        let parameters = input.get("parameters");
+        let Some(parameters) = parameters else {
+            return Err(ValueToolCallParseError::MissingParameters { input: input});
+        };
+        if !parameters.is_object() {
+            return Err(ValueToolCallParseError::ParametersNotAObject { input: input });
+        }
+        if let Err(error) = validator.validate(parameters) {
             let context = format!(
                 r#"
                 Issue: {}
@@ -121,7 +129,7 @@ impl<R> ToolBox<R> {
                 &error.instance_path,
                 &error.schema_path
             );
-            return Err(ValueToToolCallParseError::DoesNotMatchToolSchema {
+            return Err(ValueToolCallParseError::DoesNotMatchToolSchema {
                 input: input,
                 issue: context,
             });
@@ -135,95 +143,92 @@ impl<R> ToolBox<R> {
             Value::String(name) => name,
             _ => unreachable!(),
         };
-        let args = map.remove("args").unwrap();
-        let args = match args {
-            Value::Object(args) => args,
+        let parameters = map.remove("parameters").unwrap();
+        let parameters = match parameters {
+            Value::Object(parameters) => parameters,
             _ => unreachable!(),
         };
-        return Ok(ToolCallArgs {
-            name: name,
-            args: args,
+        return Ok(FunctionCall {
+            name,
+            parameters,
         });
     }
 }
 
+// dev note: keep private so it is impossible to call a tool that does not exist
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct ToolCallArgs {
+pub struct FunctionCall {
     name: String,
-    args: Map<String, Value>,
+    parameters: Map<String, Value>,
 }
 
-pub trait Tool<T> {
-    /// Returns the name of the tool.
-    fn name(&self) -> &'static str;
+/// Tools in a struct/enum
+pub trait Tool<T, E>: 'static
+where
+    T: 'static,
+    E: 'static,
+{
+    fn function_names(&self) -> &[&'static str];
 
+    /// Returns the name of the function and the call validator.
+    fn function_name_to_validator(&self) -> HashMap<&'static str, Validator>;
+
+    /// The schema for functions available to call for this tool
     fn schema(&self) -> &'static Map<String, Value>;
 
-    fn validator(&self) -> &'static Validator;
-
+    /// This should never be called directly! Only called by `ToolBox`
     /// Executes the core functionality of the tool.
-    fn run(&self, args: Map<String, Value>) -> Result<T, Box<dyn Error>>; //todo make async
+    fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<T, E>; //todo make async
 }
 
 //************************************************************************//
 
 error_set::error_set! {
+    #[disable(From(E))]
+    StrToolCallError<E: Error> = { Tool(E), } || StrToolCallParseError;
+
+    #[disable(From(E))]
+    ValueToolCallError<E: Error> = {
+        Tool(E),
+    } || ValueToolCallParseError;
 
     /// Error parsing a [`str`] into a [`ToolCall`]
     /// The display message for this type is human/llm readable.
     /// Thus it is okay to pass this back to the llm to try again.
-    StrToToolCallParseError = {
-        #[display("The tool call is not valid json")] //todo check if adding the error message here would help
+    StrToolCallParseError = {
+        #[display("The tool call is not valid json")] //todo check if adding the inner error message here would help
         ConversionError(serde_json::Error),
-        ValueToToolCallParseError(ValueToToolCallParseError)
-    };
-
-    StrToolCallError = StrToToolCallParseError || ToolCallError;
-
-    ValueToolCallError = {
-        ValueToToolCallParseError(ValueToToolCallParseError)
-    } || ToolCallError;
-
-    ToolCallError = {
-        ToolNotFound(ToolNotFoundError),
-        /// The tool execution failed.
-        Tool(Box<dyn Error>),
-    };
+    } || ValueToolCallParseError;
 
     /// Error parsing [`Value`] into a [`ToolCall`].
     /// The display message for this type is human/llm readable.
     /// Thus it is okay to pass this back to the llm to try again.
-    ValueToToolCallParseError = {
-        #[display("The tool call is missing the 'name' param")]
+    ValueToolCallParseError = {
+        #[display("The tool call is missing the 'name' param for:\n{input}")]
         MissingName {
             input: Value,
         },
-        #[display("The extracted tool call 'name' param is not a string")]
+        #[display("The extracted tool call 'name' param is not a string for:\n{input}")]
         NameNotAString {
             input: Value
         },
-        #[display("The tool call with name '{name}' does not exist")]
+        #[display("The tool call is missing the 'parameters' param for:\n{input}")]
+        MissingParameters {
+            input: Value,
+        },
+        #[display("The extracted tool call 'parameters' param is not an object for:\n{input}")]
+        ParametersNotAObject {
+            input: Value
+        },
+        #[display("The tool with name '{name}' does not exist for:\n{input}")]
         ToolDoesNotExist {
             input: Value,
             name: String,
         },
-        #[display("The tool call does not match the schema:\n'''\n{issue}\n'''")]
+        #[display("The tool call does not match the schema:\n'''\n{issue}\n'''for:\n{input}")]
         DoesNotMatchToolSchema {
             input: Value,
             issue: String,
         },
     };
-}
-
-#[derive(Debug)]
-pub struct ToolNotFoundError {
-    tool_call: ToolCallArgs,
-}
-
-impl Error for ToolNotFoundError {}
-
-impl Display for ToolNotFoundError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tool not found with name `{}`", self.tool_call.name)
-    }
 }
