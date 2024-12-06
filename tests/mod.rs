@@ -3,7 +3,7 @@ pub mod toolbox {
     use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible, error::Error};
 
     use jsonschema::Validator;
-    use llmtoolbox::{FunctionCall, Tool, ToolBox};
+    use llmtoolbox::{Tool, ToolBox};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
