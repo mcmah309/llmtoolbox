@@ -31,7 +31,7 @@ pub mod toolbox {
     //************************************************************************//
 
     // https://platform.openai.com/docs/api-reference/runs/submitToolOutputs
-    const MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
+    const _MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
         Box::leak(Box::new(json!(
         {
             "tools": [
@@ -40,7 +40,7 @@ pub mod toolbox {
                     "function": {
                         "name": "greet",
                         "description": "",
-                        "parameters": *MYTOOL_GREETING_PARAMETERS_SCHEMA
+                        "parameters": *_MYTOOL_GREETING_PARAMETERS_SCHEMA
                     }
                 },
                 {
@@ -48,7 +48,7 @@ pub mod toolbox {
                     "function": {
                         "name": "goodbye",
                         "description": "",
-                        "parameters": *MYTOOL_GOODBYE_PARAMETERS_SCHEMA
+                        "parameters": *_MYTOOL_GOODBYE_PARAMETERS_SCHEMA
                     }
                 }
             ]
@@ -56,7 +56,7 @@ pub mod toolbox {
         )))
     });
 
-    const MYTOOL_GREETING_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
+    const _MYTOOL_GREETING_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
         json!(
             {
                 "type": "object",
@@ -71,7 +71,7 @@ pub mod toolbox {
         )
     });
 
-    const MYTOOL_GOODBYE_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
+    const _MYTOOL_GOODBYE_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
         json!(
             {
                 "type": "object",
@@ -92,15 +92,15 @@ pub mod toolbox {
         fn function_name_to_validator(&self) -> HashMap<&'static str, jsonschema::Validator> {
             let mut map = HashMap::new();
             const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
-            let schema = &*MYTOOL_GREETING_PARAMETERS_SCHEMA;
+            let schema = &*_MYTOOL_GREETING_PARAMETERS_SCHEMA;
             map.insert("greet", Validator::new(schema).expect(EXPECT_MSG));
-            let schema = &*MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
+            let schema = &*_MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
             map.insert("goodbye", Validator::new(schema).expect(EXPECT_MSG));
             map
         }
 
         fn schema(&self) -> &'static Map<String, Value> {
-            MYTOOL_SCHEMA.as_object().unwrap()
+            _MYTOOL_SCHEMA.as_object().unwrap()
         }
 
         async fn run(&self, name: &str, parameters: &Map<String, Value>, _: &ToolExecutionKey) -> Result<Box<dyn Any>, Infallible> {
