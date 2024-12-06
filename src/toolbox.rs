@@ -4,7 +4,7 @@ use error_set::CoerceResult;
 use jsonschema::Validator;
 use serde_json::{Map, Value};
 
-use crate::{errors::{StrFunctionCallParseError, StrToolCallError, ValueFunctionCallError, ValueFunctionCallParseError}, tool::Tool, utils::unwrap_match};
+use crate::{errors::{StrFunctionCallParseError, StrToolCallError, ValueFunctionCallError, ValueFunctionCallParseError}, tool::Tool, utils::unwrap_match, TOOL_EXECUTION_KEY};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
 pub struct ToolBox<O: 'static, E: Error + 'static> {
@@ -47,7 +47,7 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
                 if *function_name == function_call.name {
-                    return tool.run(&function_call.name, &function_call.parameters).await;
+                    return tool.run(&function_call.name, &function_call.parameters, &TOOL_EXECUTION_KEY).await;
                 }
             }
         }

@@ -3,7 +3,7 @@ pub mod toolbox {
     use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible, error::Error};
 
     use jsonschema::Validator;
-    use llmtoolbox::{Tool, ToolBox};
+    use llmtoolbox::{Tool, ToolBox, ToolExecutionKey};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
@@ -103,7 +103,7 @@ pub mod toolbox {
             MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        async fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<Box<dyn Any>, Infallible> {
+        async fn run(&self, name: &str, parameters: &Map<String, Value>, _: &ToolExecutionKey) -> Result<Box<dyn Any>, Infallible> {
             const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
             match name {
                 "greet" => {
@@ -113,7 +113,7 @@ pub mod toolbox {
                 "goodbye" => {
                     return Ok(Box::new(self.goodbye()));
                 }
-                _ => unreachable!("`run` should only be called by `ToolBox` and `ToolBox` will never call `run` unless the function exists")
+                _ => unreachable!("`run` can only be called by `ToolBox` and `ToolBox` will never call `run` unless the function exists")
             };
         }
     }

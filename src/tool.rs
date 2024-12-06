@@ -18,7 +18,19 @@ where
     /// The schema for functions available to call for this tool
     fn schema(&self) -> &'static Map<String, Value>;
 
-    /// This should never be called directly! Only called by `ToolBox`
-    /// Executes the core functionality of the tool.
-    async fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<T, E>;
+    /// Runs the tool. This can never be called directly. Only called by `ToolBox`.
+    async fn run(
+        &self,
+        name: &str,
+        parameters: &Map<String, Value>,
+        execution_key: &ToolExecutionKey,
+    ) -> Result<T, E>;
+}
+
+pub(crate) const TOOL_EXECUTION_KEY: ToolExecutionKey = ToolExecutionKey { key: 0 };
+
+/// Prevents a `Tool` from being called from outside a `ToolBox`
+pub struct ToolExecutionKey {
+    #[allow(dead_code)]
+    key: u8,
 }
