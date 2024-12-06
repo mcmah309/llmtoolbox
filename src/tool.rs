@@ -4,6 +4,7 @@ use jsonschema::Validator;
 use serde_json::{Map, Value};
 
 /// Tools in a struct/enum
+#[async_trait::async_trait]
 pub trait Tool<T, E>: 'static
 where
     T: 'static,
@@ -19,5 +20,5 @@ where
 
     /// This should never be called directly! Only called by `ToolBox`
     /// Executes the core functionality of the tool.
-    fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<T, E>; //todo make async
+    async fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<T, E>;
 }

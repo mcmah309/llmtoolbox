@@ -81,7 +81,9 @@ pub mod toolbox {
         )))
     });
 
-    // Note: Infallible since `greeting` does not return a result.
+    // Note: Infallible since `greet` and `goodbye` do not return a result. `Box<dyn Any>` since
+    // `greet` and `goodbye` have different return types
+    #[async_trait::async_trait]
     impl Tool<Box<dyn Any>, Infallible> for MyTool {
         fn function_names(&self) -> &[&'static str] {
             &["greet", "goodbye"]
@@ -101,7 +103,7 @@ pub mod toolbox {
             MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<Box<dyn Any>, Infallible> {
+        async fn run(&self, name: &str, parameters: &Map<String, Value>) -> Result<Box<dyn Any>, Infallible> {
             const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
             match name {
                 "greet" => {
@@ -136,8 +138,8 @@ pub mod toolbox {
     //     println!("End: {message}")
     // }
 
-    #[test]
-    fn dyn_tool_works() {
+    #[tokio::test]
+    async fn dyn_tool_works() {
         let mut toolbox: ToolBox<Box<dyn Any>, Infallible> = ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = json!({
@@ -151,7 +153,7 @@ pub mod toolbox {
             Ok(okay) => okay,
             Err(error) => panic!("{error}"),
         };
-        let message = toolbox.call(&tool_call).unwrap();
+        let message = toolbox.call(&tool_call).await.unwrap();
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),

@@ -43,14 +43,11 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
     }
 
     /// Calls the tool with the given name and parameters.
-    pub fn call(&self, function_call: &FunctionCall) -> Result<O, E> {
+    pub async fn call(&self, function_call: &FunctionCall) -> Result<O, E> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
                 if *function_name == function_call.name {
-                    return match tool.run(&function_call.name, &function_call.parameters) {
-                        Ok(okay) => Ok(okay),
-                        Err(error) => Err(error),
-                    };
+                    return tool.run(&function_call.name, &function_call.parameters).await;
                 }
             }
         }
@@ -59,15 +56,15 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
         ") // todo make it so another toolbox could not create the tool call. Using the type system somehow? make them static? thread local static and non-send?
     }
 
-    pub fn call_from_str(&self, tool_call: &str) -> Result<O, StrToolCallError<E>> {
+    pub async fn call_from_str(&self, tool_call: &str) -> Result<O, StrToolCallError<E>> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
-        self.call(&tool_call).map_err(|e| StrToolCallError::Tool(e))
+        self.call(&tool_call).await.map_err(|e| StrToolCallError::Tool(e))
     }
 
-    pub fn call_from_value(&self, tool_call: Value) -> Result<O, ValueFunctionCallError<E>> {
+    pub async fn call_from_value(&self, tool_call: Value) -> Result<O, ValueFunctionCallError<E>> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
         self.call(&tool_call)
-            .map_err(|e| ValueFunctionCallError::Tool(e))
+            .await.map_err(|e| ValueFunctionCallError::Tool(e))
     }
 
     pub fn schema(&self) -> &Map<String, Value> {
