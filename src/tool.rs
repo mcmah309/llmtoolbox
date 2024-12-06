@@ -29,7 +29,7 @@ where
 
 pub(crate) const TOOL_EXECUTION_KEY: ToolExecutionKey = ToolExecutionKey { key: 0 };
 
-/// Prevents a `Tool` from being called from outside a `ToolBox`
+/// Prevents `Tool::run` from being called from outside a `ToolBox`. Since trait methods are always public.
 pub struct ToolExecutionKey {
     #[allow(dead_code)]
     key: u8,

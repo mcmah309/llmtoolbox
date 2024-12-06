@@ -1,5 +1,5 @@
 #[cfg(test)]
-pub mod toolbox {
+pub mod toolbox_by_hand {
     use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible};
 
     use jsonschema::Validator;
@@ -9,19 +9,16 @@ pub mod toolbox {
     #[derive(Debug)]
     struct MyTool;
 
-    // #[derive(LllmTool)]
     impl MyTool {
         fn new() -> Self {
             Self
         }
 
-        // #[tool]
         fn greet(&self, greeting: &str) -> String {
             println!("Greetings!");
             format!("This is the greeting `{greeting}`")
         }
 
-        // #[tool]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             0
@@ -157,6 +154,33 @@ pub mod toolbox {
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),
+        }
+    }
+}
+
+
+#[cfg(test)]
+pub mod toolbox_with_macro {
+
+    #[derive(Debug)]
+    struct MyTool;
+
+    #[llmtool::llmtool]
+    impl MyTool {
+        fn new() -> Self {
+            Self
+        }
+
+        /// `greeting` - descr
+        fn greet(&self, greeting: &str) -> String {
+            println!("Greetings!");
+            format!("This is the greeting `{greeting}`")
+        }
+
+        // #[tool]
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            0
         }
     }
 }

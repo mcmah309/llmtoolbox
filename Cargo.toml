@@ -12,6 +12,8 @@ llmtool = { version = "=0.0.1", path = "llmtool" }
 serde_json = "1"
 error_set = "0.8.2"
 jsonschema = "0.26"
+async-trait = "0.1.83"
 
 [dev-dependencies]
-func_me = {git = "https://github.com/rseymour/func_me.git" }
+tokio = { version = "1.40.0", features = ["full"] }
+schemars = "0.8.21"
