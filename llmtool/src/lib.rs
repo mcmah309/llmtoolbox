@@ -76,7 +76,7 @@ pub fn llmtool(
                 let attrs = &method.attrs;
                 for attr in attrs.iter() {
                     let path = attr.path();
-                    if path.is_ident("add") {
+                    if path.is_ident("tool_part") {
                         return Some(method);
                     }
                 }
