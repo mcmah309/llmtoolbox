@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub mod toolbox {
-    use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible, error::Error};
+    use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible};
 
     use jsonschema::Validator;
     use llmtoolbox::{Tool, ToolBox, ToolExecutionKey};
@@ -56,8 +56,8 @@ pub mod toolbox {
         )))
     });
 
-    const MYTOOL_GREETING_PARAMETERS_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
-        Box::leak(Box::new(json!(
+    const MYTOOL_GREETING_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
+        json!(
             {
                 "type": "object",
                 "properties": {
@@ -68,17 +68,17 @@ pub mod toolbox {
                 },
                 "required": ["greeting"]
             }
-        )))
+        )
     });
 
-    const MYTOOL_GOODBYE_PARAMETERS_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
-        Box::leak(Box::new(json!(
+    const MYTOOL_GOODBYE_PARAMETERS_SCHEMA: LazyCell<serde_json::Value> = LazyCell::new(|| {
+        json!(
             {
                 "type": "object",
                 "properties": {},
                 "required": []
             }
-        )))
+        )
     });
 
     // Note: Infallible since `greet` and `goodbye` do not return a result. `Box<dyn Any>` since
@@ -92,9 +92,9 @@ pub mod toolbox {
         fn function_name_to_validator(&self) -> HashMap<&'static str, jsonschema::Validator> {
             let mut map = HashMap::new();
             const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
-            let schema = *MYTOOL_GREETING_PARAMETERS_SCHEMA;
+            let schema = &*MYTOOL_GREETING_PARAMETERS_SCHEMA;
             map.insert("greet", Validator::new(schema).expect(EXPECT_MSG));
-            let schema = *MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
+            let schema = &*MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
             map.insert("goodbye", Validator::new(schema).expect(EXPECT_MSG));
             map
         }
