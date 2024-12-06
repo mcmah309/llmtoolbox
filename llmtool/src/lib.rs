@@ -73,11 +73,15 @@ pub fn llmtool(
         .into_iter()
         .filter_map(|item| {
             if let syn::ImplItem::Fn(method) = item {
-                // todo only include methods that are marked as `#[tool]`
-                Some(method)
-            } else {
-                None
+                let attrs = &method.attrs;
+                for attr in attrs.iter() {
+                    let path = attr.path();
+                    if path.is_ident("add") {
+                        return Some(method);
+                    }
+                }
             }
+            return None;
         })
         .collect();
 
@@ -205,7 +209,7 @@ fn extract_description(
         return_type,
         description,
     } = function_definition;
-    let re = Regex::new(r".*?`(?<name>.*?)`\W+(?<description>.*)$").unwrap();
+    let re = Regex::new(r".*?`(?<name>.*?)`\s*-\s*(?<description>.*)$").unwrap();
     for attr in attrs.iter() {
         match &attr.meta {
             syn::Meta::NameValue(name_value) => match &name_value.value {
@@ -214,16 +218,15 @@ fn extract_description(
                         let haystack = str.value();
                         let arg_caps = match re.captures(&haystack) {
                             Some(caps) => caps,
-                            None => continue,
-                        };
-                        if arg_caps.len() == 0 {
-                            if let Some(description) = description {
-                                description.push_str(&str.value());
-                            } else {
-                                description.insert(str.value());
+                            None => {
+                                if let Some(description) = description {
+                                    description.push_str(&*format!("{}\n", &str.value().trim()));
+                                } else {
+                                    let _ = description.insert(str.value().trim().to_string());
+                                }
+                                continue;
                             }
-                            continue;
-                        }
+                        };
                         let name = arg_caps["name"].to_string();
                         let desc = arg_caps["description"].to_string();
                         if let Some(param) = parameters.iter_mut().find(|p| p.name_str == name) {
@@ -250,6 +253,12 @@ fn extract_description(
                 /// `parameter_name` - This is the description for the parameter.", parameter.name_str),
             ));
         }
+    }
+    if function_definition.description.is_none() {
+        return Err(syn::Error::new_spanned(
+            name.clone(),
+            format!("missing description for function `{}`", name_str),
+        ));
     }
     Ok(())
 }

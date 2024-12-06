@@ -171,13 +171,15 @@ pub mod toolbox_with_macro {
             Self
         }
 
+        /// This
         /// `greeting` - descr
+        #[add]
         fn greet(&self, greeting: &str) -> String {
             println!("Greetings!");
             format!("This is the greeting `{greeting}`")
         }
 
-        // #[tool]
+        /// #[tool]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             0
