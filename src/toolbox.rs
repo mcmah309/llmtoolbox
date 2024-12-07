@@ -43,11 +43,11 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call(&self, function_call: &FunctionCall) -> Result<O, E> {
+    pub async fn call(&self, function_call: FunctionCall) -> Result<O, E> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
                 if *function_name == function_call.name {
-                    return tool.run(&function_call.name, &function_call.parameters, &TOOL_EXECUTION_KEY).await;
+                    return tool.run(function_call.name, function_call.parameters, &TOOL_EXECUTION_KEY).await;
                 }
             }
         }
@@ -58,12 +58,12 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
 
     pub async fn call_from_str(&self, tool_call: &str) -> Result<O, StrToolCallError<E>> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
-        self.call(&tool_call).await.map_err(|e| StrToolCallError::Tool(e))
+        self.call(tool_call).await.map_err(|e| StrToolCallError::Tool(e))
     }
 
     pub async fn call_from_value(&self, tool_call: Value) -> Result<O, ValueFunctionCallError<E>> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
-        self.call(&tool_call)
+        self.call(tool_call)
             .await.map_err(|e| ValueFunctionCallError::Tool(e))
     }
 

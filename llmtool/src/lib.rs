@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
@@ -65,12 +65,13 @@ pub fn llmtool(
     _attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(item as ItemImpl);
-    let ty = &input.self_ty;
-    let struct_name = ty.to_token_stream().to_string();
-
+    let mut input = parse_macro_input!(item as ItemImpl);
+    let struct_name = &input.self_ty;
+    let struct_name_str = struct_name.to_token_stream().to_string();
+    
     let methods: Vec<_> = input
         .items
+        .clone()
         .into_iter()
         .filter_map(|item| {
             if let syn::ImplItem::Fn(method) = item {
@@ -82,9 +83,22 @@ pub fn llmtool(
                     }
                 }
             }
-            return None;
+            None
         })
         .collect();
+
+    
+    input
+        .items
+        .iter_mut()
+        .for_each(|item| {
+            if let syn::ImplItem::Fn(method) = item {
+                method.attrs.retain(|attr|{
+                    !attr.path().is_ident("tool_part")
+                });
+            }
+        });
+
 
     let mut function_definitions = Vec::new();
     for method in methods {
@@ -106,21 +120,101 @@ pub fn llmtool(
         function_definitions.push(function_definition);
     }
 
-    let schema_const_indentifier = create_tool_json_schema(&struct_name, &mut function_definitions);
-    let parameter_json_schema_temp = function_definitions.iter_mut().map(|function_definition| {
-        create_function_parameter_json_schema(&struct_name, function_definition)
-    });
-    let mut parameter_json_schema = TokenStream::new();
-    parameter_json_schema.append_all(parameter_json_schema_temp);
+    let function_schema = create_tool_json_schema(&struct_name_str, &mut function_definitions);
+    let parameter_json_schema = function_definitions.iter_mut().map(|function_definition| {
+        create_function_parameter_json_schema(&struct_name_str, function_definition)
+    }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
+
+    let impl_traits = impl_traits(&struct_name, &struct_name_str, &function_definitions);
 
     let expanded = quote! {
-        #schema_const_indentifier
+        #input
+
+        #function_schema
 
         #parameter_json_schema
+
+        #impl_traits
     };
 
     proc_macro::TokenStream::from(expanded)
 }
+
+fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definitions: &Vec<FunctionDefintion>) -> TokenStream {
+    let function_names = function_definitions.iter().map(|function_definition| {
+        &function_definition.name_str
+    });
+
+    let function_name_to_validator = function_definitions.iter().map(|function_definition| {
+        let name = &function_definition.name;
+        let id = function_definition.create_schema_const_indentifier(struct_name_str);
+        quote! {
+            let schema = &*#id;
+            map.insert(stringify!(#name), jsonschema::Validator::new(schema).expect(EXPECT_MSG));
+        }
+    }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
+
+    let run_arms = function_definitions.iter().map(|function_definition| {
+        let function_parameter_statements = function_definition.parameters.iter().map(|parameter|{
+            let name = &parameter.name;
+            let name_str = &parameter.name_str;
+            let parameter_type = &parameter.param_type;
+            quote! {
+                let #name = parameters.remove(#name_str).expect(EXPECT_MSG);
+                let #name: #parameter_type = serde_json::from_value(#name).expect(EXPECT_MSG);
+            }
+        });
+        let function_parameters = function_definition.parameters.iter().map(|parameter| {
+            &parameter.name
+        });
+        let function_name = &function_definition.name;
+        let function_name_str = &function_definition.name_str;
+        quote! {
+            #function_name_str => {
+                    #(#function_parameter_statements)*
+                    return Ok(Box::new(self.#function_name(#(#function_parameters),*)));
+                }
+        }
+    }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
+
+    let schema = create_tool_schema_const_indentifier(struct_name_str);
+    quote! {
+        #[async_trait::async_trait]
+        impl llmtoolbox::Tool<Box<dyn std::any::Any>, std::convert::Infallible> for #struct_name {
+            fn function_names(&self) -> &[&'static str] {
+                &[
+                    #(#function_names),*
+                ]
+            }
+
+            fn function_name_to_validator(&self) -> std::collections::HashMap<&'static str, jsonschema::Validator> {
+                let mut map = std::collections::HashMap::new();
+                const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
+                #function_name_to_validator
+                map
+            }
+
+            fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
+                #schema.as_object().unwrap()
+            }
+
+            async fn run(
+                &self,
+                name: String,
+                mut parameters: serde_json::Map<String, serde_json::Value>,
+                _: &llmtoolbox::ToolExecutionKey,
+            ) -> Result<Box<dyn std::any::Any>, std::convert::Infallible> {
+                const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
+                match &*name {
+                    #run_arms
+                    _ => panic!("function `{name}` not found"),
+                }
+            }
+        }
+    }
+}
+
+
 
 fn extract_function_defintion(signature: Signature) -> syn::Result<FunctionDefintion> {
     let inputs = &signature.inputs;

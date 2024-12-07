@@ -21,8 +21,8 @@ where
     /// Runs the tool. This can never be called directly. Only called by `ToolBox`.
     async fn run(
         &self,
-        name: &str,
-        parameters: &Map<String, Value>,
+        name: String,
+        mut parameters: Map<String, Value>,
         execution_key: &ToolExecutionKey,
     ) -> Result<T, E>;
 }

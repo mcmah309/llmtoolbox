@@ -17,3 +17,4 @@ async-trait = "0.1.83"
 [dev-dependencies]
 tokio = { version = "1.40.0", features = ["full"] }
 schemars = "=1.0.0-alpha.17"
+serde = "1"

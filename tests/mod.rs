@@ -102,16 +102,17 @@ pub mod toolbox_by_hand {
 
         async fn run(
             &self,
-            name: &str,
-            parameters: &Map<String, Value>,
+            name: String,
+            mut parameters: Map<String, Value>,
             _: &ToolExecutionKey,
         ) -> Result<Box<dyn Any>, Infallible> {
             const EXPECT_MSG: &str =
                 "`ToolBox` should have validated parameters before calling `run`";
-            match name {
+            match &*name {
                 "greet" => {
-                    let greet = parameters["greeting"].as_str().expect(EXPECT_MSG);
-                    return Ok(Box::new(self.greet(greet)));
+                    let greeting = parameters.remove("greeting").expect(EXPECT_MSG);
+                    let greeting: String = serde_json::from_value(greeting).expect(EXPECT_MSG);
+                    return Ok(Box::new(self.greet(&greeting)));
                 }
                 "goodbye" => {
                     return Ok(Box::new(self.goodbye()));
@@ -138,7 +139,7 @@ pub mod toolbox_by_hand {
             Ok(okay) => okay,
             Err(error) => panic!("{error}"),
         };
-        let message = toolbox.call(&tool_call).await.unwrap();
+        let message = toolbox.call(tool_call).await.unwrap();
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),
@@ -162,8 +163,8 @@ pub mod toolbox_with_macro {
 
         /// This
         /// `greeting` - descr
-        // #[tool_part]
-        fn greet(&self, greeting: &str) -> String {
+        #[tool_part]
+        fn greet(&self, greeting: String) -> String {
             println!("Greetings!");
             format!("This is the greeting `{greeting}`")
         }
@@ -176,7 +177,7 @@ pub mod toolbox_with_macro {
 
         /// func descrip
         /// `my_struct` - field description
-        #[tool_part]
+        // #[tool_part]
         fn goodbye2(&self, my_struct: MyStruct) -> u32 {
             println!("Goodbye!");
             0
@@ -202,9 +203,27 @@ pub mod toolbox_with_macro {
 
     #[tokio::test]
     async fn dyn_tool_works() {
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> = llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let tool_call_value = serde_json::json!({
+            "name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        let tool_call = toolbox.parse_value_tool_call(tool_call_value);
+        let tool_call = match tool_call {
+            Ok(okay) => okay,
+            Err(error) => panic!("{error}"),
+        };
+        let message = toolbox.call(tool_call).await.unwrap();
+        match message.downcast::<String>() {
+            Ok(message) => println!("End: {message}"),
+            Err(_) => println!("Not a string"),
+        }
         // let schema = &*_MYTOOL_GOODBYE2_PARMETER_SCHEMA;
-        let schema = &*_MYTOOL_SCHEMA;
-        let schema = serde_json::to_string_pretty(&schema).unwrap();
-        println!("{}", schema);
+        // let schema = &*_MYTOOL_SCHEMA;
+        // let schema = serde_json::to_string_pretty(&schema).unwrap();
+        // println!("{}", schema);
     }
 }
