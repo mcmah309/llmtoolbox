@@ -111,7 +111,7 @@ pub mod toolbox_by_hand {
             match &*name {
                 "greet" => {
                     let greeting = parameters.remove("greeting").expect(EXPECT_MSG);
-                    let greeting: String = serde_json::from_value(greeting).expect(EXPECT_MSG);
+                    let greeting: &str = &*serde_json::from_value::<String>(greeting).expect(EXPECT_MSG);
                     return Ok(Box::new(self.greet(&greeting)));
                 }
                 "goodbye" => {
@@ -162,7 +162,7 @@ pub mod toolbox_with_macro {
         /// This
         /// `greeting` - descr
         #[tool_part]
-        fn greet(&self, greeting: String) -> String {
+        fn greet(&self, greeting: &str) -> String {
             println!("Greetings!");
             format!("This is the greeting `{greeting}`")
         }

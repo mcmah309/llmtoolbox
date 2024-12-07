@@ -156,12 +156,36 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
 
     let run_arms = function_definitions.iter().map(|function_definition| {
         let function_parameter_statements = function_definition.parameters.iter().map(|parameter|{
-            let name = &parameter.name;
-            let name_str = &parameter.name_str;
-            let parameter_type = &parameter.param_type;
+            let Parameter {
+                name,
+                name_str,
+                param_type,
+                type_str:  _,
+                description: _,
+            } = parameter;
+            let deserialize= match param_type {
+                Type::Reference(type_reference) => match &*type_reference.elem {
+                    Type::Path(type_path) => {
+                        if type_path.path.get_ident().is_some_and(|item| &*item.to_string() == "str") {
+                            Some(quote! {
+                                let #name: &str = &*serde_json::from_value::<String>(#name).expect(EXPECT_MSG);
+                            })
+                        }
+                        else {
+                            Some(quote! {
+                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).expect(EXPECT_MSG);
+                            })
+                        }
+                    },
+                    _ => None,
+                },
+                _ => None,
+            }.unwrap_or(quote! {
+                let #name: #param_type = serde_json::from_value::<#param_type>(#name).expect(EXPECT_MSG);
+            });
             quote! {
                 let #name = parameters.remove(#name_str).expect(EXPECT_MSG);
-                let #name: #parameter_type = serde_json::from_value(#name).expect(EXPECT_MSG);
+                #deserialize
             }
         });
         let function_parameters = function_definition.parameters.iter().map(|parameter| {
