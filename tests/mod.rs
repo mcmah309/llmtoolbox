@@ -202,15 +202,9 @@ pub mod toolbox_with_macro {
 
     #[tokio::test]
     async fn dyn_tool_works() {
-        let schema_settings = SchemaSettings::draft2020_12();
-        let schema =
-            schemars::SchemaGenerator::new(schema_settings).into_root_schema_for::<MyStruct>();
-        let mut schema = schema.to_value();
-        match schema {
-            Value::Object(ref mut map) => { map.insert("".to_string(), Value::String("".to_string())); },
-            _ => panic!()
-        }
-        // let schema = serde_json::to_string_pretty(&schema).unwrap();
-        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+        // let schema = &*_MYTOOL_GOODBYE2_PARMETER_SCHEMA;
+        let schema = &*_MYTOOL_SCHEMA;
+        let schema = serde_json::to_string_pretty(&schema).unwrap();
+        println!("{}", schema);
     }
 }
