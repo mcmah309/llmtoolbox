@@ -100,8 +100,14 @@ pub mod toolbox_by_hand {
             _MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        async fn run(&self, name: &str, parameters: &Map<String, Value>, _: &ToolExecutionKey) -> Result<Box<dyn Any>, Infallible> {
-            const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
+        async fn run(
+            &self,
+            name: &str,
+            parameters: &Map<String, Value>,
+            _: &ToolExecutionKey,
+        ) -> Result<Box<dyn Any>, Infallible> {
+            const EXPECT_MSG: &str =
+                "`ToolBox` should have validated parameters before calling `run`";
             match name {
                 "greet" => {
                     let greet = parameters["greeting"].as_str().expect(EXPECT_MSG);
@@ -116,24 +122,6 @@ pub mod toolbox_by_hand {
     }
 
     //************************************************************************//
-
-    // #[test]
-    // fn string_tool_works() {
-    //     let mut toolbox: ToolBox<String, Box<dyn Error>> = ToolBox::new();
-    //     toolbox.add_tool(MyTool::new()).unwrap();
-    //     let mut map = Map::new();
-    //     map.insert("name".to_string(), Value::String("greeting".to_string()));
-    //     let mut parameters = Map::new();
-    //     parameters.insert(
-    //         "text".to_string(),
-    //         Value::String("This is a greeting".to_string()),
-    //     );
-    //     map.insert("parameters".to_string(), Value::Object(parameters));
-    //     let tool_call_value: Value = Value::Object(map);
-    //     let tool_call = toolbox.parse_value_tool_call(tool_call_value).unwrap();
-    //     let message = toolbox.call(tool_call).unwrap();
-    //     println!("End: {message}")
-    // }
 
     #[tokio::test]
     async fn dyn_tool_works() {
@@ -158,9 +146,10 @@ pub mod toolbox_by_hand {
     }
 }
 
-
 #[cfg(test)]
 pub mod toolbox_with_macro {
+    use schemars::{generate::SchemaSettings, JsonSchema};
+    use serde_json::Value;
 
     #[derive(Debug)]
     struct MyTool;
@@ -173,16 +162,55 @@ pub mod toolbox_with_macro {
 
         /// This
         /// `greeting` - descr
-        #[tool_part]
+        // #[tool_part]
         fn greet(&self, greeting: &str) -> String {
             println!("Greetings!");
             format!("This is the greeting `{greeting}`")
         }
 
-        /// #[tool]
+        // #[tool_part]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             0
         }
+
+        /// func descrip
+        /// `my_struct` - field description
+        #[tool_part]
+        fn goodbye2(&self, my_struct: MyStruct) -> u32 {
+            println!("Goodbye!");
+            0
+        }
+    }
+
+    /// Description
+    #[derive(JsonSchema)]
+    pub struct MyStruct {
+        pub my_int: i32,
+        pub my_bool: bool,
+        // pub my_nullable_enum: Option<MyEnum>,
+    }
+
+    #[derive(JsonSchema)]
+    pub enum MyEnum {
+        /// This is a description
+        StringNewType(String),
+        StructVariant {
+            floats: Vec<f32>,
+        },
+    }
+
+    #[tokio::test]
+    async fn dyn_tool_works() {
+        let schema_settings = SchemaSettings::draft2020_12();
+        let schema =
+            schemars::SchemaGenerator::new(schema_settings).into_root_schema_for::<MyStruct>();
+        let mut schema = schema.to_value();
+        match schema {
+            Value::Object(ref mut map) => { map.insert("".to_string(), Value::String("".to_string())); },
+            _ => panic!()
+        }
+        // let schema = serde_json::to_string_pretty(&schema).unwrap();
+        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
     }
 }

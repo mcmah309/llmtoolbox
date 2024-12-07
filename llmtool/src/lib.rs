@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use regex::Regex;
+use syn::spanned::Spanned;
 use syn::{parse_macro_input, GenericArgument, ItemImpl, LitStr, PathArguments, Signature};
 use syn::{FnArg, Ident, ItemFn, Pat, Type};
 
@@ -39,7 +40,7 @@ impl FunctionDefintion {
 struct Parameter {
     name: Ident,
     name_str: String,
-    type_: syn::Type,
+    param_type: syn::Type,
     type_str: String,
     // option because, late, but required
     description: Option<String>,
@@ -136,7 +137,7 @@ fn extract_function_defintion(signature: Signature) -> syn::Result<FunctionDefin
                     Some(Parameter {
                         name,
                         name_str,
-                        type_,
+                        param_type: type_,
                         type_str,
                         description: None,
                     })
@@ -263,27 +264,27 @@ fn extract_description(
     Ok(())
 }
 
-fn rust_type_to_json_schema(ty: &Type) -> String {
+/// Attempt to determine the correct json schema type at compile time, that is not an object
+fn rust_type_to_known_json_schema_type(ty: &Type) -> Option<&'static str> {
     match ty {
         Type::Path(type_path) => {
             if let Some(segment) = type_path.path.segments.last() {
-                let ret = match segment.ident.to_string().as_str() {
-                    "String" => "string",
+                return match segment.ident.to_string().as_str() {
+                    "String" | "str" => Some("string"),
                     // json_serde only support `i64`, `u64`, `f64` as a final result
-                    "i8" | "i16" | "i32" | "i64" | "isize" => "integer",
-                    "u8" | "u16" | "u32" | "u64" | "usize" => "integer", // todo if u, add to description it needs to b unsigned.
-                    "u128" | "i128" => "integer", // todo compile_error!("json_serde only support `i64`, `u64`, `f64` as a final result. The the type needs to be compatible."),
-                    "f32" | "f64" => "number",
-                    "bool" => "boolean",
-                    _ => "object", // todo handle
+                    "i8" | "i16" | "i32" | "i64" | "isize" => Some("integer"),
+                    "u8" | "u16" | "u32" | "u64" | "usize" => Some("integer"), // todo if u, add to description it needs to b unsigned.
+                    "u128" | "i128" => Some("integer"), // todo compile_error!("json_serde only support `i64`, `u64`, `f64` as a final result. The the type needs to be compatible."),
+                    "f32" | "f64" => Some("number"),
+                    "bool" => Some("boolean"),
+                    _ => None,
                 };
-                ret.to_string()
             } else {
-                "object".to_string() // todo handle
+                None
             }
         }
-        Type::Reference(type_ref) => rust_type_to_json_schema(&type_ref.elem),
-        _ => "object".to_string(), // todo handle
+        Type::Reference(type_ref) => rust_type_to_known_json_schema_type(&type_ref.elem),
+        _ => None,
     }
 }
 
@@ -329,30 +330,72 @@ fn create_function_parameter_json_schema(
     function_definition: &mut FunctionDefintion,
 ) -> proc_macro2::TokenStream {
     let parameters = &function_definition.parameters;
-    let mut fields = Vec::new();
-    let mut required = Vec::new();
+    let mut known_properties = Vec::new();
+    let mut known_required_property_name = Vec::new();
+    let mut computed_required_property_name = Vec::new();
+    // definition of the variable used in `computed_properties`
+    let mut computed_properties_outer_definitions = Vec::new();
+    let mut computed_properties = Vec::new();
+    let mut num_of_computed_properties = 0;
     for parameter in parameters {
         let name = &parameter.name_str;
         let description = &parameter.description;
-        let type_ = rust_type_to_json_schema(&parameter.type_);
-        fields.push(quote! {
-            #name: {
-                "type": #type_,
-                "description": #description
-            }
-        });
-        required.push(quote! {
-            #name
-        });
+        let param_type = &parameter.param_type;
+        let json_schema_type = rust_type_to_known_json_schema_type(&parameter.param_type);
+        if let Some(param_type) = json_schema_type {
+            known_properties.push(quote! {
+                #name: {
+                    "type": #param_type,
+                    "description": #description
+                }
+            });
+            known_required_property_name.push(quote! {
+                #name
+            });
+        } else {
+            num_of_computed_properties +=1;
+            let id = Ident::new(
+                &format!("computed{num_of_computed_properties}"),
+                json_schema_type.span(),
+            );
+            computed_properties_outer_definitions.push(quote! {
+                let #id = (|| {
+                    let schema_settings = schemars::generate::SchemaSettings::draft2020_12();
+                    let schema = schemars::SchemaGenerator::new(schema_settings).into_root_schema_for::<#param_type>();
+                    let mut schema = schema.to_value();
+                    llmtoolbox::clean_up_schema(&mut schema);
+                    match schema {
+                        serde_json::Value::Object(ref mut map) => { 
+                            map.insert("description".to_string(), serde_json::Value::String(#description.to_string())); 
+                        },
+                        _ => panic!("schema should always generate a map type.")
+                    }
+                    return schema;
+                })();
+            });
+            computed_properties.push(quote! {
+                #name: #id
+            });
+            computed_required_property_name.push(quote! {
+                #name
+            });
+        }
     }
     let id = function_definition.create_schema_const_indentifier(struct_name);
     quote! {
         const #id: std::cell::LazyCell<serde_json::Value> = std::cell::LazyCell::new(|| {
+            #(#computed_properties_outer_definitions)*
             serde_json::json!(
                 {
                     "type": "object",
-                    "required": [#(#required),*],
-                    "properties": {#(#fields),*},
+                    "required": [
+                        #(#known_required_property_name),*
+                        #(#computed_required_property_name),*
+                    ],
+                    "properties": {
+                        #(#known_properties),*
+                        #(#computed_properties),*
+                    },
                 }
             )
         });
