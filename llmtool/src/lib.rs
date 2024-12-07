@@ -207,7 +207,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
                 match &*name {
                     #run_arms
-                    _ => panic!("function `{name}` not found"),
+                    _ => panic!("`run` can only be called by `ToolBox` and `ToolBox` should never call `run` unless the function exists"),
                 }
             }
         }

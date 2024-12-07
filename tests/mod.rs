@@ -149,8 +149,6 @@ pub mod toolbox_by_hand {
 
 #[cfg(test)]
 pub mod toolbox_with_macro {
-    use schemars::{generate::SchemaSettings, JsonSchema};
-    use serde_json::Value;
 
     #[derive(Debug)]
     struct MyTool;
@@ -177,7 +175,7 @@ pub mod toolbox_with_macro {
 
         /// func descrip
         /// `my_struct` - field description
-        // #[tool_part]
+        #[tool_part]
         fn goodbye2(&self, my_struct: MyStruct) -> u32 {
             println!("Goodbye!");
             0
@@ -185,14 +183,14 @@ pub mod toolbox_with_macro {
     }
 
     /// Description
-    #[derive(JsonSchema)]
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
     pub struct MyStruct {
         pub my_int: i32,
         pub my_bool: bool,
         // pub my_nullable_enum: Option<MyEnum>,
     }
 
-    #[derive(JsonSchema)]
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
     pub enum MyEnum {
         /// This is a description
         StringNewType(String),
