@@ -4,7 +4,14 @@ use error_set::CoerceResult;
 use jsonschema::Validator;
 use serde_json::{Map, Value};
 
-use crate::{errors::{StrFunctionCallParseError, StrToolCallError, ValueFunctionCallError, ValueFunctionCallParseError}, tool::Tool, utils::unwrap_match, TOOL_EXECUTION_KEY};
+use crate::{
+    errors::{
+        StrToolCallError, StrToolCallParseError, ValueToolCallError, ValueToolCallParseError,
+    },
+    tool::Tool,
+    utils::unwrap_match,
+    TOOL_EXECUTION_KEY,
+};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
 pub struct ToolBox<O: 'static, E: Error + 'static> {
@@ -43,28 +50,35 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call(&self, function_call: FunctionCall) -> Result<O, E> {
+    /// The provided [ToolCall] must come from this [ToolBox]'s `parse_*` methods.
+    /// Passing a [ToolCall] from a different [ToolBox] may cause a panic.
+    pub async fn call(&self, tool_call: ToolCall) -> Result<O, E> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
-                if *function_name == function_call.name {
-                    return tool.run(function_call.name, function_call.parameters, &TOOL_EXECUTION_KEY).await;
+                if *function_name == tool_call.name {
+                    return tool
+                        .run(tool_call.name, tool_call.parameters, &TOOL_EXECUTION_KEY)
+                        .await;
                 }
             }
         }
-        panic!("For a `ToolCall` can only be created from a `ToolBox`, for it not to be found, it must have been \
-        created by another `ToolBox`.
-        ") // todo make it so another toolbox could not create the tool call. Using the type system somehow? make them static? thread local static and non-send?
+        let name = tool_call.name;
+        panic!("Tool named `{name}` not found in this `ToolBox`. \
+        A `ToolCall` can only be created from a `ToolBox` and is only valid for `ToolBox` that created it.")
     }
 
     pub async fn call_from_str(&self, tool_call: &str) -> Result<O, StrToolCallError<E>> {
         let tool_call = self.parse_str_tool_call(tool_call)?;
-        self.call(tool_call).await.map_err(|e| StrToolCallError::Tool(e))
+        self.call(tool_call)
+            .await
+            .map_err(|e| StrToolCallError::Tool(e))
     }
 
-    pub async fn call_from_value(&self, tool_call: Value) -> Result<O, ValueFunctionCallError<E>> {
+    pub async fn call_from_value(&self, tool_call: Value) -> Result<O, ValueToolCallError<E>> {
         let tool_call = self.parse_value_tool_call(tool_call)?;
         self.call(tool_call)
-            .await.map_err(|e| ValueFunctionCallError::Tool(e))
+            .await
+            .map_err(|e| ValueToolCallError::Tool(e))
     }
 
     pub fn schema(&self) -> &Map<String, Value> {
@@ -72,7 +86,7 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
     }
 
     /// Parses the input string.
-    pub fn parse_str_tool_call(&self, input: &str) -> Result<FunctionCall, StrFunctionCallParseError> {
+    pub fn parse_str_tool_call(&self, input: &str) -> Result<ToolCall, StrToolCallParseError> {
         let value = serde_json::from_str::<Value>(input)?;
         self.parse_value_tool_call(value).coerce()
     }
@@ -81,23 +95,20 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
         self.tool_name_to_validator.get(name)
     }
 
-    pub fn parse_value_tool_call(
-        &self,
-        input: Value,
-    ) -> Result<FunctionCall, ValueFunctionCallParseError> {
+    pub fn parse_value_tool_call(&self, input: Value) -> Result<ToolCall, ValueToolCallParseError> {
         let name = match input.get("name") {
             Some(name) => name,
-            None => return Err(ValueFunctionCallParseError::MissingName { input: input }),
+            None => return Err(ValueToolCallParseError::MissingName { input: input }),
         };
         let name = match name.as_str() {
             Some(name) => name,
-            None => return Err(ValueFunctionCallParseError::NameNotAString { input: input }),
+            None => return Err(ValueToolCallParseError::NameNotAString { input: input }),
         };
         let validator = match self.get_validator(name) {
             Some(validator) => validator,
             None => {
                 let name = name.to_owned();
-                return Err(ValueFunctionCallParseError::ToolDoesNotExist {
+                return Err(ValueToolCallParseError::ToolDoesNotExist {
                     input: input,
                     name: name,
                 });
@@ -105,21 +116,21 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
         };
         let parameters = input.get("parameters");
         let Some(parameters) = parameters else {
-            return Err(ValueFunctionCallParseError::MissingParameters { input: input});
+            return Err(ValueToolCallParseError::MissingParameters { input: input });
         };
         if !parameters.is_object() {
-            return Err(ValueFunctionCallParseError::ParametersNotAObject { input: input });
+            return Err(ValueToolCallParseError::ParametersNotAObject { input: input });
         }
         if let Err(error) = validator.validate(parameters) {
             let context = format!(
                 r#"
-                Issue: {}
+Issue: {}
 
-                Violation Instance: {}
+Violation Instance: {}
 
-                Violation Path: {}
+Violation Path: {}
 
-                Schema Property Violated: {}"#,
+Schema Property Violated: {}"#,
                 &error.to_string(),
                 &error.instance,
                 &error.instance_path,
@@ -127,7 +138,7 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
             );
             let name = name.to_owned();
             let mut map = unwrap_match!(input, Value::Object);
-            return Err(ValueFunctionCallParseError::ParametersSchemaMismatch {
+            return Err(ValueToolCallParseError::ParametersSchemaMismatch {
                 name,
                 issue: context,
                 parameters_schema: map.remove("parameters").unwrap(),
@@ -138,16 +149,15 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
         let name = unwrap_match!(name, Value::String);
         let parameters = map.remove("parameters").unwrap();
         let parameters = unwrap_match!(parameters, Value::Object);
-        return Ok(FunctionCall {
-            name,
-            parameters,
-        });
+        return Ok(ToolCall { name, parameters });
     }
 }
 
 // dev note: keep private so it is impossible to call a tool that does not exist
+/// A valid call for a tool in the [ToolBox] it came from.
+/// Do not pass to a different [ToolBox] than the one that created this.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct FunctionCall {
+pub struct ToolCall {
     name: String,
     parameters: Map<String, Value>,
 }
