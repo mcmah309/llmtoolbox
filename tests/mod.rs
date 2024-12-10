@@ -1,9 +1,8 @@
 #[cfg(test)]
 pub mod toolbox_by_hand {
-    use std::{any::Any, cell::LazyCell, collections::HashMap, convert::Infallible};
+    use std::{any::Any, cell::LazyCell, convert::Infallible};
 
-    use jsonschema::Validator;
-    use llmtoolbox::{Tool, ToolBox, ToolExecutionKey};
+    use llmtoolbox::{CallError, Tool, ToolBox};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
@@ -86,38 +85,35 @@ pub mod toolbox_by_hand {
             &["greet", "goodbye"]
         }
 
-        fn function_name_to_validator(&self) -> HashMap<&'static str, jsonschema::Validator> {
-            let mut map = HashMap::new();
-            const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
-            let schema = &*_MYTOOL_GREETING_PARAMETERS_SCHEMA;
-            map.insert("greet", Validator::new(schema).expect(EXPECT_MSG));
-            let schema = &*_MYTOOL_GOODBYE_PARAMETERS_SCHEMA;
-            map.insert("goodbye", Validator::new(schema).expect(EXPECT_MSG));
-            map
-        }
-
         fn schema(&self) -> &'static Map<String, Value> {
             _MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        async fn run(
+        async fn call(
             &self,
-            name: String,
+            name: &str,
             mut parameters: Map<String, Value>,
-            _: &ToolExecutionKey,
-        ) -> Result<Box<dyn Any>, Infallible> {
-            const EXPECT_MSG: &str =
-                "`ToolBox` should have validated parameters before calling `run`";
+        ) -> Result<Result<Box<dyn Any>, Infallible>, CallError> {
             match &*name {
                 "greet" => {
-                    let greeting = parameters.remove("greeting").expect(EXPECT_MSG);
-                    let greeting: &str = &*serde_json::from_value::<String>(greeting).expect(EXPECT_MSG);
-                    return Ok(Box::new(self.greet(&greeting)));
+                    let greeting = parameters
+                        .remove("greeting")
+                        .ok_or_else(|| CallError::new("Missing `greeting` param".to_owned()))?;
+                    let greeting: &str = &*serde_json::from_value::<String>(greeting)
+                        .ok()
+                        .ok_or_else(|| {
+                            CallError::new("`greeting` param does not follow schema ...".to_owned())
+                        })?;
+                    return Ok(Ok(Box::new(self.greet(&greeting))));
                 }
                 "goodbye" => {
-                    return Ok(Box::new(self.goodbye()));
+                    return Ok(Ok(Box::new(self.goodbye())));
                 }
-                _ => unreachable!("`run` can only be called by `ToolBox` and `ToolBox` will never call `run` unless the function exists")
+                _ => {
+                    return Err(CallError::new(format!(
+                        "`{name}` is not a function in this tool"
+                    )))
+                }
             };
         }
     }
@@ -134,12 +130,10 @@ pub mod toolbox_by_hand {
                 "greeting": "This is a greeting"
             }
         });
-        let tool_call = toolbox.parse_value_tool_call(tool_call_value);
-        let tool_call = match tool_call {
-            Ok(okay) => okay,
+        let message = match toolbox.call(tool_call_value).await {
+            Ok(Ok(tool_result)) => tool_result,
             Err(error) => panic!("{error}"),
         };
-        let message = toolbox.call(tool_call).await.unwrap();
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),
@@ -201,7 +195,8 @@ pub mod toolbox_with_macro {
 
     #[tokio::test]
     async fn dyn_tool_works() {
-        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> = llmtoolbox::ToolBox::new();
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
+            llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
             "name": "greet",
@@ -209,12 +204,10 @@ pub mod toolbox_with_macro {
                 "greeting": "This is a greeting"
             }
         });
-        let tool_call = toolbox.parse_value_tool_call(tool_call_value);
-        let tool_call = match tool_call {
-            Ok(okay) => okay,
+        let message = match toolbox.call(tool_call_value).await {
+            Ok(Ok(tool_result)) => tool_result,
             Err(error) => panic!("{error}"),
         };
-        let message = toolbox.call(tool_call).await.unwrap();
         match message.downcast::<String>() {
             Ok(message) => println!("End: {message}"),
             Err(_) => println!("Not a string"),

@@ -145,15 +145,6 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
         &function_definition.name_str
     });
 
-    let function_name_to_validator = function_definitions.iter().map(|function_definition| {
-        let name = &function_definition.name;
-        let id = function_definition.create_schema_const_indentifier(struct_name_str);
-        quote! {
-            let schema = &*#id;
-            map.insert(stringify!(#name), jsonschema::Validator::new(schema).expect(EXPECT_MSG));
-        }
-    }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
-
     let run_arms = function_definitions.iter().map(|function_definition| {
         let function_parameter_statements = function_definition.parameters.iter().map(|parameter|{
             let Parameter {
@@ -168,12 +159,12 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                     Type::Path(type_path) => {
                         if type_path.path.get_ident().is_some_and(|item| &*item.to_string() == "str") {
                             Some(quote! {
-                                let #name: &str = &*serde_json::from_value::<String>(#name).expect(EXPECT_MSG);
+                                let #name: &str = &*serde_json::from_value::<String>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
                             })
                         }
                         else {
                             Some(quote! {
-                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).expect(EXPECT_MSG);
+                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
                             })
                         }
                     },
@@ -181,10 +172,10 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 },
                 _ => None,
             }.unwrap_or(quote! {
-                let #name: #param_type = serde_json::from_value::<#param_type>(#name).expect(EXPECT_MSG);
+                let #name: #param_type = serde_json::from_value::<#param_type>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
             });
             quote! {
-                let #name = parameters.remove(#name_str).expect(EXPECT_MSG);
+                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::new("Missing `#name` param".to_owned()))?;
                 #deserialize
             }
         });
@@ -196,7 +187,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
         quote! {
             #function_name_str => {
                     #(#function_parameter_statements)*
-                    return Ok(Box::new(self.#function_name(#(#function_parameters),*)));
+                    return Ok(Ok(Box::new(self.#function_name(#(#function_parameters),*))));
                 }
         }
     }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
@@ -211,27 +202,20 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 ]
             }
 
-            fn function_name_to_validator(&self) -> std::collections::HashMap<&'static str, jsonschema::Validator> {
-                let mut map = std::collections::HashMap::new();
-                const EXPECT_MSG: &str = "The macro should not be able to create an invalid schema";
-                #function_name_to_validator
-                map
-            }
-
             fn schema(&self) -> &'static serde_json::Map<String, serde_json::Value> {
                 #schema.as_object().unwrap()
             }
 
-            async fn run(
+            async fn call(
                 &self,
-                name: String,
+                name: &str,
                 mut parameters: serde_json::Map<String, serde_json::Value>,
-                _: &llmtoolbox::ToolExecutionKey,
-            ) -> Result<Box<dyn std::any::Any>, std::convert::Infallible> {
-                const EXPECT_MSG: &str = "`ToolBox` should have validated parameters before calling `run`";
+            ) -> Result<Result<Box<dyn std::any::Any>, std::convert::Infallible>, llmtoolbox::CallError> {
                 match &*name {
                     #run_arms
-                    _ => panic!("`run` can only be called by `ToolBox` and `ToolBox` should never call `run` unless the function exists"),
+                    _ => return Err(llmtoolbox::CallError::new(format!(
+                        "`{name}` is not a function in this tool"
+                    ))),
                 }
             }
         }
