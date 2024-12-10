@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, ToTokens, TokenStreamExt};
+use quote::{quote, ToTokens, TokenStreamExt};
 use regex::Regex;
 use syn::spanned::Spanned;
-use syn::{parse_macro_input, GenericArgument, ItemImpl, LitStr, PathArguments, Signature};
-use syn::{FnArg, Ident, ItemFn, Pat, Type};
+use syn::{parse_macro_input, GenericArgument, ItemImpl, PathArguments, Signature};
+use syn::{FnArg, Ident, Pat, Type};
 
 fn create_tool_schema_const_indentifier(struct_name: &str) -> Ident {
     Ident::new(
@@ -120,6 +120,15 @@ pub fn llmtool(
         function_definitions.push(function_definition);
     }
 
+    if function_definitions.is_empty() {
+        return syn::Error::new_spanned(
+            struct_name,
+            "No functions found in this tool. Please add functions to the tool with the `#[tool_part]` attribute.",
+        )
+        .into_compile_error()
+        .into();
+    }
+
     let function_schema = create_tool_json_schema(&struct_name_str, &mut function_definitions);
     let parameter_json_schema = function_definitions.iter_mut().map(|function_definition| {
         create_function_parameter_json_schema(&struct_name_str, function_definition)
@@ -140,7 +149,101 @@ pub fn llmtool(
     proc_macro::TokenStream::from(expanded)
 }
 
+struct CommonReturnTypes<'a> {
+    result_err: HashSet<&'a Type>,
+    result_ok_and_regular: HashSet<&'a Type>,
+}
+
+impl<'a> CommonReturnTypes<'a> {
+    pub fn new() -> Self {
+        Self {
+            result_err: HashSet::new(),
+            result_ok_and_regular: HashSet::new(),
+        }
+    }
+}
+
 fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definitions: &Vec<FunctionDefintion>) -> TokenStream {
+    let mut common_return_types = CommonReturnTypes::new();
+    for function_definition in function_definitions.iter() {
+        match &function_definition.return_type {
+            ReturnType::Result(result_return_type) => {
+                common_return_types.result_err.insert(&result_return_type.error);
+                common_return_types.result_ok_and_regular.insert(&result_return_type.okay);
+            }
+            ReturnType::Other(other_return_type) => {
+                common_return_types.result_ok_and_regular.insert(&other_return_type.other);
+            }
+        }
+    }
+    // aka no result functions
+    let all_functions_are_regular = common_return_types.result_err.len() == 0;
+    let mut common_err_type: Option<Type> = None;
+    let all_are_results_with_same_err_type = common_return_types.result_err.len() == function_definitions.len() && common_return_types.result_err.len() == 1;
+    if all_are_results_with_same_err_type {
+        let first = *common_return_types.result_err.iter().next().unwrap();
+        common_err_type = Some(first.clone());
+    }
+    let mut common_ok_type: Option<Type>  = None;
+    let all_have_same_ok_type = common_return_types.result_ok_and_regular.len() == function_definitions.len() && common_return_types.result_ok_and_regular.len() == 1;
+    if all_have_same_ok_type {
+        let first = *common_return_types.result_ok_and_regular.iter().next().unwrap();
+        common_ok_type = Some(first.clone());
+    }
+
+    let impls_needed = determine_impls_needed(common_ok_type, common_err_type, all_functions_are_regular);
+
+    let mut all_impl_tokens = TokenStream::new();
+
+    let box_any_type = quote! {
+        Box<dyn std::any::Any>
+    };
+    let infallible_type = quote! {
+        std::convert::Infallible
+    };
+    for impl_needed in impls_needed {
+        let tokens = match impl_needed {
+            ImplTypes::BoxAndBox => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &box_any_type),
+            ImplTypes::BoxAndSpecific(err_type) => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &err_type.to_token_stream()),
+            ImplTypes::SpecificAndBox(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &box_any_type),
+            ImplTypes::SpecificAndSpecific(ok_type, err_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &err_type.to_token_stream()),
+            ImplTypes::BoxAndInfallible => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &infallible_type),
+            ImplTypes::SpecificAndInfallible(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &infallible_type),
+        };
+        all_impl_tokens.append_all(tokens);
+    }
+
+    all_impl_tokens
+}
+
+enum ImplTypes {
+    BoxAndBox,
+    BoxAndSpecific(Type),
+    SpecificAndBox(Type),
+    SpecificAndSpecific(Type, Type),
+    BoxAndInfallible,
+    SpecificAndInfallible(Type),
+}
+
+fn determine_impls_needed(common_ok_type: Option<Type>, common_err_type: Option<Type>, all_functions_are_regular: bool) -> Vec<ImplTypes> {
+    let mut vecs = match (common_ok_type.clone(), common_err_type.clone()) {
+        (None, None) => vec![],
+        (None, Some(err_type)) => vec![ImplTypes::BoxAndSpecific(err_type)],
+        (Some(ok_type), None) => vec![ImplTypes::SpecificAndBox(ok_type)],
+        (Some(ok_type), Some(err_type)) => vec![ImplTypes::BoxAndSpecific(err_type.clone()), ImplTypes::SpecificAndBox(ok_type.clone()), ImplTypes::SpecificAndSpecific(ok_type, err_type)],
+    };
+    if all_functions_are_regular {
+        assert!(common_err_type.is_none(), "If there are no result functions, there should be no error type");
+        vecs.push(ImplTypes::BoxAndInfallible);
+        if let Some(common_ok_type) = common_ok_type {
+            vecs.push(ImplTypes::SpecificAndInfallible(common_ok_type));
+        }
+    }
+    vecs.push(ImplTypes::BoxAndBox);
+    vecs
+}
+
+fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definitions: &Vec<FunctionDefintion>, ensure_ok_is_boxed: bool, ok_type: &TokenStream, err_type: &TokenStream) -> TokenStream {
     let function_names = function_definitions.iter().map(|function_definition| {
         &function_definition.name_str
     });
@@ -154,17 +257,19 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 type_str:  _,
                 description: _,
             } = parameter;
+            let serde_message = format!("Parameter `{}` does not follow schema", name_str);
+            let missing_message = format!("Missing `{}` parameter", name_str);
             let deserialize= match param_type {
                 Type::Reference(type_reference) => match &*type_reference.elem {
                     Type::Path(type_path) => {
                         if type_path.path.get_ident().is_some_and(|item| &*item.to_string() == "str") {
                             Some(quote! {
-                                let #name: &str = &*serde_json::from_value::<String>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
+                                let #name: &str = &*serde_json::from_value::<String>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
                             })
                         }
                         else {
                             Some(quote! {
-                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
+                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
                             })
                         }
                     },
@@ -172,22 +277,20 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 },
                 _ => None,
             }.unwrap_or(quote! {
-                let #name: #param_type = serde_json::from_value::<#param_type>(#name).ok().ok_or_else(|| llmtoolbox::CallError::new("Parameter `#name` does not follow schema".to_owned()))?;
+                let #name: #param_type = serde_json::from_value::<#param_type>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
             });
             quote! {
-                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::new("Missing `#name` param".to_owned()))?;
+                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::new(#missing_message.to_owned()))?;
                 #deserialize
             }
         });
-        let function_parameters = function_definition.parameters.iter().map(|parameter| {
-            &parameter.name
-        });
-        let function_name = &function_definition.name;
+        let return_statement = 
+        make_return_statement(function_definition, ensure_ok_is_boxed);
         let function_name_str = &function_definition.name_str;
         quote! {
             #function_name_str => {
                     #(#function_parameter_statements)*
-                    return Ok(Ok(Box::new(self.#function_name(#(#function_parameters),*))));
+                    #return_statement
                 }
         }
     }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
@@ -195,7 +298,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
     let schema = create_tool_schema_const_indentifier(struct_name_str);
     quote! {
         #[async_trait::async_trait]
-        impl llmtoolbox::Tool<Box<dyn std::any::Any>, std::convert::Infallible> for #struct_name {
+        impl llmtoolbox::Tool<#ok_type, #err_type> for #struct_name {
             fn function_names(&self) -> &[&'static str] {
                 &[
                     #(#function_names),*
@@ -210,7 +313,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
                 &self,
                 name: &str,
                 mut parameters: serde_json::Map<String, serde_json::Value>,
-            ) -> Result<Result<Box<dyn std::any::Any>, std::convert::Infallible>, llmtoolbox::CallError> {
+            ) -> Result<Result<#ok_type, #err_type>, llmtoolbox::CallError> {
                 match &*name {
                     #run_arms
                     _ => return Err(llmtoolbox::CallError::new(format!(
@@ -222,7 +325,47 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
     }
 }
 
-
+fn make_return_statement(function_definition: &FunctionDefintion, needs_box: bool) -> TokenStream {
+    let async_part;
+    if function_definition.is_async {
+        async_part = quote! {
+            .await
+        }
+    }
+    else {
+        async_part = quote! {}
+    }
+    let function_parameters = function_definition.parameters.iter().map(|parameter| {
+        &parameter.name
+    });
+    let function_name = &function_definition.name;
+    match function_definition.return_type {
+        ReturnType::Result(_) => {
+            if needs_box {
+                quote! {
+                    return Ok(Box::new(self.#function_name(#(#function_parameters),*)#async_part));
+                }
+            }
+            else {
+                quote! {
+                    return Ok(self.#function_name(#(#function_parameters),*)#async_part);
+                }
+            }
+        },
+        ReturnType::Other(_) => {
+            if needs_box {
+                quote! {
+                    return Ok(Ok(Box::new(self.#function_name(#(#function_parameters),*)#async_part)));
+                }
+            }
+            else {
+                quote! {
+                    return Ok(Ok(self.#function_name(#(#function_parameters),*)#async_part));
+                }
+            }
+        }
+    }
+}
 
 fn extract_function_defintion(signature: Signature) -> syn::Result<FunctionDefintion> {
     let inputs = &signature.inputs;
