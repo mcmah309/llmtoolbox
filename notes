@@ -1,6 +1,0 @@
-If all the functions in a tool return concrete types then Tools `E` type is `Infallible`.
-If all of the tools return have the same return type `T` or `Result<T,_>`, then `O` is that type.
-Otherwise, `O` is `Box<dyn Any>` and `E` is `Box<dyn Error`.
-
-Make sure `Tool` is implemented for `Box<dyn Any>` and `Box<dyn Error` and an more explicit ones
-if the above holds.
