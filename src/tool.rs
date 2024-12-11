@@ -1,14 +1,8 @@
-use std::collections::HashMap;
-
-use jsonschema::Validator;
 use serde_json::{Map, Value};
 
 /// Tools in a struct/enum
 #[async_trait::async_trait]
-pub trait Tool<T, E>: 'static
-where
-    T: 'static,
-    E: 'static,
+pub trait Tool<T, E>
 {
     fn function_names(&self) -> &[&'static str];
 

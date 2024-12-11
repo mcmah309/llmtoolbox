@@ -7,14 +7,14 @@ use serde_json::{Map, Value};
 use crate::{tool::Tool, utils::unwrap_match, CallError};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
-pub struct ToolBox<O: 'static, E: Error + 'static> {
+pub struct ToolBox<O, E> {
     /// all the tools that the llm can call
     all_tools: Vec<Box<dyn Tool<O, E>>>,
     /// schema to be sent to the llm
     schema: Map<String, Value>,
 }
 
-impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
+impl<O, E> ToolBox<O, E> {
     pub fn new() -> Self {
         Self {
             all_tools: Vec::new(),
@@ -26,7 +26,7 @@ impl<O: 'static, E: Error + 'static> ToolBox<O, E> {
 
     /// Adds the `tool` to this [`Toolbox`]. If a tool with the same name already exists, will return
     /// Err with the tool.
-    pub fn add_tool<T: Tool<O, E>>(&mut self, tool: T) -> Result<(), T> {
+    pub fn add_tool<T: Tool<O, E> + 'static>(&mut self, tool: T) -> Result<(), T> {
         for existing_function_name in self.all_tools.iter().map(|e| e.function_names()).flatten() {
             for new_function_name in tool.function_names() {
                 if existing_function_name == new_function_name {

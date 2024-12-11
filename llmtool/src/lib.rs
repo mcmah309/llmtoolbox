@@ -176,8 +176,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
             }
         }
     }
-    // aka no result functions
-    let all_functions_are_regular = common_return_types.result_err.len() == 0;
+
     let mut common_err_type: Option<Type> = None;
     let all_are_results_with_same_err_type = common_return_types.result_err.len() == function_definitions.len() && common_return_types.result_err.len() == 1;
     if all_are_results_with_same_err_type {
@@ -185,12 +184,13 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
         common_err_type = Some(first.clone());
     }
     let mut common_ok_type: Option<Type>  = None;
-    let all_have_same_ok_type = common_return_types.result_ok_and_regular.len() == function_definitions.len() && common_return_types.result_ok_and_regular.len() == 1;
+    let all_have_same_ok_type = common_return_types.result_ok_and_regular.len() == 1;
     if all_have_same_ok_type {
         let first = *common_return_types.result_ok_and_regular.iter().next().unwrap();
         common_ok_type = Some(first.clone());
     }
 
+    let all_functions_are_regular = common_return_types.result_err.len() == 0; // aka no result functions
     let impls_needed = determine_impls_needed(common_ok_type, common_err_type, all_functions_are_regular);
 
     let mut all_impl_tokens = TokenStream::new();
@@ -343,12 +343,15 @@ fn make_return_statement(function_definition: &FunctionDefintion, needs_box: boo
         ReturnType::Result(_) => {
             if needs_box {
                 quote! {
-                    return Ok(Box::new(self.#function_name(#(#function_parameters),*)#async_part));
+                    return Ok(match self.#function_name(#(#function_parameters),*)#async_part {
+                        Ok(value) => Ok(Box::new(value)),
+                        Err(value) => Err(Box::new(value)),
+                    });
                 }
             }
             else {
                 quote! {
-                    return Ok(self.#function_name(#(#function_parameters),*)#async_part);
+                    return Ok(Ok(self.#function_name(#(#function_parameters),*)#async_part));
                 }
             }
         },
