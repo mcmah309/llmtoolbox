@@ -178,7 +178,7 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
     }
 
     let mut common_err_type: Option<Type> = None;
-    let all_are_results_with_same_err_type = common_return_types.result_err.len() == function_definitions.len() && common_return_types.result_err.len() == 1;
+    let all_are_results_with_same_err_type = common_return_types.result_err.len() == 1;
     if all_are_results_with_same_err_type {
         let first = *common_return_types.result_err.iter().next().unwrap();
         common_err_type = Some(first.clone());
@@ -198,17 +198,20 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
     let box_any_type = quote! {
         Box<dyn std::any::Any>
     };
+    let box_error_type = quote! {
+        Box<dyn std::error::Error>
+    };
     let infallible_type = quote! {
         std::convert::Infallible
     };
     for impl_needed in impls_needed {
         let tokens = match impl_needed {
-            ImplTypes::BoxAndBox => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &box_any_type),
-            ImplTypes::BoxAndSpecific(err_type) => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &err_type.to_token_stream()),
-            ImplTypes::SpecificAndBox(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &box_any_type),
-            ImplTypes::SpecificAndSpecific(ok_type, err_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &err_type.to_token_stream()),
-            ImplTypes::BoxAndInfallible => impl_trait(struct_name, struct_name_str, function_definitions, true, &box_any_type, &infallible_type),
-            ImplTypes::SpecificAndInfallible(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, &ok_type.to_token_stream(), &infallible_type),
+            ImplTypes::BoxAndBox => impl_trait(struct_name, struct_name_str, function_definitions, true, true, &box_any_type, &box_error_type),
+            ImplTypes::BoxAndSpecific(err_type) => impl_trait(struct_name, struct_name_str, function_definitions, true, false, &box_any_type, &err_type.to_token_stream()),
+            ImplTypes::SpecificAndBox(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, true, &ok_type.to_token_stream(), &box_error_type),
+            ImplTypes::SpecificAndSpecific(ok_type, err_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, false, &ok_type.to_token_stream(), &err_type.to_token_stream()),
+            ImplTypes::BoxAndInfallible => impl_trait(struct_name, struct_name_str, function_definitions, true, false, &box_any_type, &infallible_type),
+            ImplTypes::SpecificAndInfallible(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, false, &ok_type.to_token_stream(), &infallible_type),
         };
         all_impl_tokens.append_all(tokens);
     }
@@ -243,7 +246,7 @@ fn determine_impls_needed(common_ok_type: Option<Type>, common_err_type: Option<
     vecs
 }
 
-fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definitions: &Vec<FunctionDefintion>, ensure_ok_is_boxed: bool, ok_type: &TokenStream, err_type: &TokenStream) -> TokenStream {
+fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definitions: &Vec<FunctionDefintion>, ok_needs_box: bool, err_needs_box: bool, ok_type: &TokenStream, err_type: &TokenStream) -> TokenStream {
     let function_names = function_definitions.iter().map(|function_definition| {
         &function_definition.name_str
     });
@@ -285,7 +288,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
             }
         });
         let return_statement = 
-        make_return_statement(function_definition, ensure_ok_is_boxed);
+        make_return_statement(function_definition, ok_needs_box, err_needs_box);
         let function_name_str = &function_definition.name_str;
         quote! {
             #function_name_str => {
@@ -325,7 +328,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
     }
 }
 
-fn make_return_statement(function_definition: &FunctionDefintion, needs_box: bool) -> TokenStream {
+fn make_return_statement(function_definition: &FunctionDefintion, ok_needs_box: bool, err_needs_box: bool) -> TokenStream {
     let async_part;
     if function_definition.is_async {
         async_part = quote! {
@@ -341,22 +344,36 @@ fn make_return_statement(function_definition: &FunctionDefintion, needs_box: boo
     let function_name = &function_definition.name;
     match function_definition.return_type {
         ReturnType::Result(_) => {
-            if needs_box {
-                quote! {
-                    return Ok(match self.#function_name(#(#function_parameters),*)#async_part {
-                        Ok(value) => Ok(Box::new(value)),
-                        Err(value) => Err(Box::new(value)),
-                    });
+            if ok_needs_box {
+                if err_needs_box {
+                    quote! {
+                        return Ok(match self.#function_name(#(#function_parameters),*)#async_part {
+                            Ok(value) => Ok(Box::new(value) as Box<dyn std::any::Any>),
+                            Err(value) => Err(Box::new(value) as Box<dyn std::error::Error>),
+                        });
+                    }
+                }
+                else {
+                    quote! {
+                        return Ok(self.#function_name(#(#function_parameters),*)#async_part.map(|value| Box::new(value) as Box<dyn std::any::Any>));
+                    }
                 }
             }
             else {
-                quote! {
-                    return Ok(Ok(self.#function_name(#(#function_parameters),*)#async_part));
+                if err_needs_box {
+                    quote! {
+                        return Ok(self.#function_name(#(#function_parameters),*)#async_part.map_err(|error| Box::new(error) as Box<dyn std::error::Error>));
+                    }
+                }
+                else {
+                    quote! {
+                        return Ok(self.#function_name(#(#function_parameters),*)#async_part);
+                    }
                 }
             }
         },
         ReturnType::Other(_) => {
-            if needs_box {
+            if ok_needs_box {
                 quote! {
                     return Ok(Ok(Box::new(self.#function_name(#(#function_parameters),*)#async_part)));
                 }
