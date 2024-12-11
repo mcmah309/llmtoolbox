@@ -26,7 +26,6 @@ pub mod toolbox_by_hand {
 
     //************************************************************************//
 
-    // https://platform.openai.com/docs/api-reference/runs/submitToolOutputs
     const _MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
         Box::leak(Box::new(json!(
         {
@@ -135,8 +134,11 @@ pub mod toolbox_by_hand {
             Err(error) => panic!("{error}"),
         };
         match message.downcast::<String>() {
-            Ok(message) => println!("End: {message}"),
-            Err(_) => println!("Not a string"),
+            Ok(message) => assert_eq!(
+                *message,
+                "This is the greeting `This is a greeting`".to_owned()
+            ),
+            Err(_) => panic!("Not the corect type"),
         }
     }
 }
@@ -185,7 +187,7 @@ pub mod toolbox_different_regular_return_type {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::any::Any>> =
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
@@ -202,13 +204,15 @@ pub mod toolbox_different_regular_return_type {
             Err(error) => panic!("{error}"),
         };
         match message.downcast::<String>() {
-            Ok(message) => println!("End: {message}"),
-            Err(_) => println!("Not a string"),
+            Ok(message) => assert_eq!(
+                *message,
+                "This is the greeting `This is a greeting`".to_owned()
+            ),
+            Err(_) => panic!("Not the corect type"),
         }
-        // let schema = &*_MYTOOL_GOODBYE2_PARMETER_SCHEMA;
-        // let schema = &*_MYTOOL_SCHEMA;
-        // let schema = serde_json::to_string_pretty(&schema).unwrap();
-        // println!("{}", schema);
+        let _schema = &*_MYTOOL_TALK_PARMETER_SCHEMA;
+        let schema = &*_MYTOOL_SCHEMA;
+        let _schema = serde_json::to_string_pretty(&schema).unwrap();
     }
 }
 
@@ -256,13 +260,15 @@ pub mod toolbox_same_regular_return_type {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::any::Any>> =
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
             llmtoolbox::ToolBox::new();
-            let mut toolbox: llmtoolbox::ToolBox<String, Box<dyn std::any::Any>> =
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let mut toolbox: llmtoolbox::ToolBox<String, Box<dyn std::error::Error>> =
             llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBox<String, std::convert::Infallible> =
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
@@ -272,10 +278,153 @@ pub mod toolbox_same_regular_return_type {
                 "greeting": "This is a greeting"
             }
         });
-        let message = match toolbox.call(tool_call_value).await {
-            Ok(Ok(tool_result)) => tool_result,
+        match toolbox.call(tool_call_value).await {
+            Ok(Ok(tool_result)) => assert_eq!(
+                *tool_result,
+                "This is the greeting `This is a greeting`".to_owned()
+            ),
             Err(error) => panic!("{error}"),
         };
-        println!("End: {message}");
+    }
+}
+
+#[cfg(test)]
+pub mod toolbox_same_regular_return_type_with_result {
+
+    #[derive(Debug)]
+    struct MyTool;
+
+    #[llmtool::llmtool]
+    impl MyTool {
+        fn new() -> Self {
+            Self
+        }
+
+        /// This
+        /// `greeting` - descr
+        #[tool_part]
+        fn greet(&self, greeting: &str) -> String {
+            println!("Greetings!");
+            format!("This is the greeting `{greeting}`")
+        }
+
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            1
+        }
+
+        /// func descrip
+        /// `topic` - field description
+        #[tool_part]
+        async fn talk(&self, topic: ConverstationTopic) -> Result<String, std::io::Error> {
+            let ConverstationTopic { topic, opinion } = topic;
+            println!("For {topic} it is {opinion}");
+            Ok(String::new())
+        }
+    }
+
+    /// Description
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
+    pub struct ConverstationTopic {
+        pub topic: String,
+        pub opinion: String,
+    }
+
+    #[tokio::test]
+    async fn test_it() {
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let mut toolbox: llmtoolbox::ToolBox<String, Box<dyn std::error::Error>> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let tool_call_value = serde_json::json!({
+            "name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        match toolbox.call(tool_call_value).await {
+            Ok(okay) => match okay {
+                Ok(okay) => assert_eq!(
+                    *okay,
+                    "This is the greeting `This is a greeting`".to_owned()
+                ),
+                Err(error) => panic!("{error}"),
+            },
+            Err(error) => panic!("{error}"),
+        };
+    }
+}
+
+#[cfg(test)]
+pub mod toolbox_different_ok_same_err {
+
+    #[derive(Debug)]
+    struct MyTool;
+
+    #[llmtool::llmtool]
+    impl MyTool {
+        fn new() -> Self {
+            Self
+        }
+
+        /// This
+        /// `greeting` - descr
+        #[tool_part]
+        fn greet(&self, greeting: &str) -> Result<String, std::io::Error> {
+            println!("Greetings!");
+            Ok(format!("This is the greeting `{greeting}`"))
+        }
+
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            1
+        }
+
+        /// func descrip
+        /// `topic` - field description
+        #[tool_part]
+        async fn talk(&self, topic: ConverstationTopic) -> Result<u32, std::io::Error> {
+            let ConverstationTopic { topic, opinion } = topic;
+            println!("For {topic} it is {opinion}");
+            Ok(0)
+        }
+    }
+
+    /// Description
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
+    pub struct ConverstationTopic {
+        pub topic: String,
+        pub opinion: String,
+    }
+
+    #[tokio::test]
+    async fn test_it() {
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::io::Error> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let tool_call_value = serde_json::json!({
+            "name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        match toolbox.call(tool_call_value).await {
+            Ok(okay) => match okay {
+                Ok(okay) => assert_eq!(
+                    *okay.downcast::<String>().unwrap(),
+                    "This is the greeting `This is a greeting`".to_owned()
+                ),
+                Err(error) => {
+                    let error: std::io::Error = error;
+                    panic!("{error}")
+                }
+            },
+            Err(error) => panic!("{error}"),
+        };
     }
 }
