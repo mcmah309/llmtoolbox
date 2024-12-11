@@ -163,6 +163,7 @@ pub mod toolbox_different_regular_return_type {
             format!("This is the greeting `{greeting}`")
         }
 
+        #[allow(dead_code)]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             1
@@ -236,6 +237,7 @@ pub mod toolbox_same_regular_return_type {
             format!("This is the greeting `{greeting}`")
         }
 
+        #[allow(dead_code)]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             1
@@ -308,6 +310,7 @@ pub mod toolbox_same_regular_return_type_with_result {
             format!("This is the greeting `{greeting}`")
         }
 
+        #[allow(dead_code)]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             1
@@ -377,6 +380,7 @@ pub mod toolbox_different_ok_same_err {
             Ok(format!("This is the greeting `{greeting}`"))
         }
 
+        #[allow(dead_code)]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
             1

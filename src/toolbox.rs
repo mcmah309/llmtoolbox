@@ -1,7 +1,3 @@
-use std::{collections::HashMap, error::Error};
-
-use error_set::CoerceResult;
-use jsonschema::Validator;
 use serde_json::{Map, Value};
 
 use crate::{tool::Tool, utils::unwrap_match, CallError};
@@ -58,7 +54,7 @@ impl<O, E> ToolBox<O, E> {
                     return tool
                         .call(&tool_call.name, tool_call.parameters)
                         .await
-                        .coerce();
+                        .map_err(|err| err.into());
                 }
             }
         }

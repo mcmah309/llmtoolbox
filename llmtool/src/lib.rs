@@ -41,7 +41,6 @@ struct Parameter {
     name: Ident,
     name_str: String,
     param_type: syn::Type,
-    type_str: String,
     // option because, late, but required
     description: Option<String>,
 }
@@ -257,7 +256,6 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                 name,
                 name_str,
                 param_type,
-                type_str:  _,
                 description: _,
             } = parameter;
             let serde_message = format!("Parameter `{}` does not follow schema", name_str);
@@ -396,14 +394,13 @@ fn extract_function_defintion(signature: Signature) -> syn::Result<FunctionDefin
                 if let Pat::Ident(pat_ident) = &*arg.pat {
                     let name_str = pat_ident.ident.to_string();
                     let name = pat_ident.ident.clone();
-                    let type_str = arg.ty.to_token_stream().to_string();
+                    // let type_str = arg.ty.to_token_stream().to_string();
                     let type_ = *arg.ty.clone();
 
                     Some(Parameter {
                         name,
                         name_str,
                         param_type: type_,
-                        type_str,
                         description: None,
                     })
                 } else {
@@ -468,11 +465,11 @@ fn extract_description(
     attrs: Vec<syn::Attribute>,
 ) -> syn::Result<()> {
     let FunctionDefintion {
-        is_async,
+        is_async: _,
         name,
         name_str,
         parameters,
-        return_type,
+        return_type: _,
         description,
     } = function_definition;
     let re = Regex::new(r".*?`(?<name>.*?)`\s*-\s*(?<description>.*)$").unwrap();
