@@ -142,7 +142,7 @@ pub mod toolbox_by_hand {
 }
 
 #[cfg(test)]
-pub mod toolbox_with_macro {
+pub mod toolbox_different_regular_return_type {
 
     #[derive(Debug)]
     struct MyTool;
@@ -161,40 +161,33 @@ pub mod toolbox_with_macro {
             format!("This is the greeting `{greeting}`")
         }
 
-        // #[tool_part]
         fn goodbye(&self) -> u32 {
             println!("Goodbye!");
-            0
+            1
         }
 
         /// func descrip
-        /// `my_struct` - field description
+        /// `topic` - field description
         #[tool_part]
-        fn goodbye2(&self, my_struct: MyStruct) -> u32 {
-            println!("Goodbye!");
+        async fn talk(&self, topic: ConverstationTopic) -> u32 {
+            let ConverstationTopic { topic, opinion } = topic;
+            println!("For {topic} it is {opinion}");
             0
         }
     }
 
     /// Description
     #[derive(serde::Deserialize, schemars::JsonSchema)]
-    pub struct MyStruct {
-        pub my_int: i32,
-        pub my_bool: bool,
-        // pub my_nullable_enum: Option<MyEnum>,
-    }
-
-    #[derive(serde::Deserialize, schemars::JsonSchema)]
-    pub enum MyEnum {
-        /// This is a description
-        StringNewType(String),
-        StructVariant {
-            floats: Vec<f32>,
-        },
+    pub struct ConverstationTopic {
+        pub topic: String,
+        pub opinion: String,
     }
 
     #[tokio::test]
-    async fn dyn_tool_works() {
+    async fn test_it() {
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::any::Any>> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
@@ -216,5 +209,73 @@ pub mod toolbox_with_macro {
         // let schema = &*_MYTOOL_SCHEMA;
         // let schema = serde_json::to_string_pretty(&schema).unwrap();
         // println!("{}", schema);
+    }
+}
+
+#[cfg(test)]
+pub mod toolbox_same_regular_return_type {
+
+    #[derive(Debug)]
+    struct MyTool;
+
+    #[llmtool::llmtool]
+    impl MyTool {
+        fn new() -> Self {
+            Self
+        }
+
+        /// This
+        /// `greeting` - descr
+        #[tool_part]
+        fn greet(&self, greeting: &str) -> String {
+            println!("Greetings!");
+            format!("This is the greeting `{greeting}`")
+        }
+
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            1
+        }
+
+        /// func descrip
+        /// `topic` - field description
+        #[tool_part]
+        async fn talk(&self, topic: ConverstationTopic) -> String {
+            let ConverstationTopic { topic, opinion } = topic;
+            println!("For {topic} it is {opinion}");
+            String::new()
+        }
+    }
+
+    /// Description
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
+    pub struct ConverstationTopic {
+        pub topic: String,
+        pub opinion: String,
+    }
+
+    #[tokio::test]
+    async fn test_it() {
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::any::Any>> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
+            llmtoolbox::ToolBox::new();
+            let mut toolbox: llmtoolbox::ToolBox<String, Box<dyn std::any::Any>> =
+            llmtoolbox::ToolBox::new();
+        let mut toolbox: llmtoolbox::ToolBox<String, std::convert::Infallible> =
+            llmtoolbox::ToolBox::new();
+        toolbox.add_tool(MyTool::new()).unwrap();
+        let tool_call_value = serde_json::json!({
+            "name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        let message = match toolbox.call(tool_call_value).await {
+            Ok(Ok(tool_result)) => tool_result,
+            Err(error) => panic!("{error}"),
+        };
+        println!("End: {message}");
     }
 }
