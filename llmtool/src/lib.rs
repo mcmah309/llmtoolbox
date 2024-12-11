@@ -298,7 +298,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
 
     let schema = create_tool_schema_const_indentifier(struct_name_str);
     quote! {
-        #[async_trait::async_trait]
+        //#[async_trait::async_trait]
         impl llmtoolbox::Tool<#ok_type, #err_type> for #struct_name {
             fn function_names(&self) -> &[&'static str] {
                 &[
@@ -310,18 +310,65 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                 #schema.as_object().unwrap()
             }
 
-            async fn call(
-                &self,
-                name: &str,
-                mut parameters: serde_json::Map<String, serde_json::Value>,
-            ) -> Result<Result<#ok_type, #err_type>, llmtoolbox::CallError> {
-                match &*name {
-                    #run_arms
-                    _ => return Err(llmtoolbox::CallError::new(format!(
-                        "`{name}` is not a function in this tool"
-                    ))),
-                }
+            fn call<'life0, 'life1, 'async_trait>(
+                &'life0 self,
+                name: &'life1 str,
+                parameters: serde_json::Map<String, serde_json::Value>,
+            ) -> ::core::pin::Pin<
+                Box<
+                    dyn ::core::future::Future<
+                            Output = Result<
+                                Result<#ok_type, #err_type>,
+                                llmtoolbox::CallError,
+                            >,
+                        > + ::core::marker::Send
+                        + 'async_trait,
+                >,
+            >
+            where
+                'life0: 'async_trait,
+                'life1: 'async_trait,
+                Self: 'async_trait,
+            {
+                Box::pin(async move {
+                    if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
+                        Result<
+                            Result<#ok_type, #err_type>,
+                            llmtoolbox::CallError,
+                        >,
+                    > {
+                        #[allow(unreachable_code)]
+                        return __ret;
+                    }
+                    let __self = self;
+                    let mut parameters = parameters;
+                    let __ret: Result<
+                        Result<#ok_type, #err_type>,
+                        llmtoolbox::CallError,
+                    > = {
+                        match &*name {
+                            #run_arms
+                            _ => return Err(llmtoolbox::CallError::new(format!(
+                                "`{name}` is not a function in this tool"
+                            ))),
+                        }
+                    };
+                    #[allow(unreachable_code)]
+                    __ret
+                })
             }
+            // async fn call(
+            //     &self,
+            //     name: &str,
+            //     mut parameters: serde_json::Map<String, serde_json::Value>,
+            // ) -> Result<Result<#ok_type, #err_type>, llmtoolbox::CallError> {
+            //     match &*name {
+            //         #run_arms
+            //         _ => return Err(llmtoolbox::CallError::new(format!(
+            //             "`{name}` is not a function in this tool"
+            //         ))),
+            //     }
+            // }
         }
     }
 }
