@@ -17,6 +17,8 @@ pub trait Tool<T, E>
     ) -> Result<Result<T, E>, CallError>;
 }
 
+/// An error related to dynamically calling a function, not runing the function.
+/// Either there was an error parsing the arguments or the function did not exist.
 #[derive(Debug)]
 pub struct CallError {
     reason: String,
