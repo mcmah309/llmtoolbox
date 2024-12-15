@@ -617,7 +617,8 @@ fn create_tool_json_schema(
                             "const": stringify!(#name),
                         },
                         "parameters": *#id
-                    }
+                    },
+                    "required": ["function_name", "parameters"]
                 }
             )
         });
