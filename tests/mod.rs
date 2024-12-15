@@ -152,7 +152,7 @@ pub mod toolbox_different_regular_return_type {
     #[derive(Debug)]
     struct MyTool;
 
-    #[llmtool::llmtool]
+    #[llmtool::tool]
     impl MyTool {
         fn new() -> Self {
             Self
@@ -226,7 +226,7 @@ pub mod toolbox_same_regular_return_type {
     #[derive(Debug)]
     struct MyTool;
 
-    #[llmtool::llmtool]
+    #[llmtool::tool]
     impl MyTool {
         fn new() -> Self {
             Self
@@ -299,7 +299,7 @@ pub mod toolbox_same_regular_return_type_with_result {
     #[derive(Debug)]
     struct MyTool;
 
-    #[llmtool::llmtool]
+    #[llmtool::tool]
     impl MyTool {
         fn new() -> Self {
             Self
@@ -369,7 +369,7 @@ pub mod toolbox_different_ok_same_err {
     #[derive(Debug)]
     struct MyTool;
 
-    #[llmtool::llmtool]
+    #[llmtool::tool]
     impl MyTool {
         fn new() -> Self {
             Self
