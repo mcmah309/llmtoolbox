@@ -1,3 +1,4 @@
+mod errors;
 mod tool;
 mod toolbox;
 mod utils;
@@ -5,6 +6,7 @@ mod utils;
 pub use tool::*;
 pub use toolbox::*;
 pub use llmtool::*;
+pub use errors::*;
 
 pub fn clean_up_schema(schema: &mut serde_json::Value) {
     match schema {

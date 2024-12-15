@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use crate::{utils::unwrap_match, CallError, Tool};
+use crate::{utils::unwrap_match, CallError, CallParsingError, Tool};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
 pub struct ToolBox<O, E> {
@@ -50,35 +50,34 @@ impl<O, E> ToolBox<O, E> {
     async fn call_from_tool_call(&self, tool_call: ToolCall) -> Result<Result<O, E>, CallError> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
-                if *function_name == tool_call.name {
+                if *function_name == tool_call.function_name {
                     return tool
-                        .call(&tool_call.name, tool_call.parameters)
+                        .call(&tool_call.function_name, tool_call.parameters)
                         .await
                         .map_err(|err| err.into());
                 }
             }
         }
-        let name = tool_call.name;
         Err(CallError::FunctionNotFound {
-            function_name: name,
+            function_name: tool_call.function_name,
         })
     }
 
-    fn str_split_into_tool_call(&self, input: &str) -> Result<ToolCall, CallError> {
+    fn str_split_into_tool_call(&self, input: &str) -> Result<ToolCall, CallParsingError> {
         let value =
             serde_json::from_str::<Value>(input)
                 .ok()
-                .ok_or_else(|| CallError::Parsing {
+                .ok_or_else(|| CallParsingError::Parsing {
                     issue: "The tool call is not valid json".to_owned(),
                 })?;
         self.value_split_into_tool_call(value)
     }
 
-    fn value_split_into_tool_call(&self, input: Value) -> Result<ToolCall, CallError> {
+    fn value_split_into_tool_call(&self, input: Value) -> Result<ToolCall, CallParsingError> {
         let name = match input.get("function_name") {
             Some(name) => name,
             None => {
-                return Err(CallError::Parsing {
+                return Err(CallParsingError::Parsing {
                     issue: format!(
                         "The tool call is missing the `function_name` field in:\n{input}"
                     ),
@@ -88,7 +87,7 @@ impl<O, E> ToolBox<O, E> {
         let _ = match name.as_str() {
             Some(name) => name,
             None => {
-                return Err(CallError::Parsing {
+                return Err(CallParsingError::Parsing {
                     issue: format!(
                         "The tool call `function_name` field is not a string in:\n{input}"
                     ),
@@ -97,12 +96,12 @@ impl<O, E> ToolBox<O, E> {
         };
         let parameters = input.get("parameters");
         let Some(parameters) = parameters else {
-            return Err(CallError::Parsing {
+            return Err(CallParsingError::Parsing {
                 issue: format!("The tool call is missing the `parameters` field in:\n{input}"),
             });
         };
         if !parameters.is_object() {
-            return Err(CallError::Parsing {
+            return Err(CallParsingError::Parsing {
                 issue: format!("The tool call `parameters` field is not an object in:\n{input}"),
             });
         }
@@ -111,7 +110,7 @@ impl<O, E> ToolBox<O, E> {
         let name = unwrap_match!(name, Value::String);
         let parameters = map.remove("parameters").unwrap();
         let parameters = unwrap_match!(parameters, Value::Object);
-        return Ok(ToolCall { name, parameters });
+        return Ok(ToolCall { function_name: name, parameters });
     }
 
     //************************************************************************//
@@ -121,11 +120,9 @@ impl<O, E> ToolBox<O, E> {
     }
 }
 
-// dev note: keep private so it is impossible to call a tool that does not exist
-/// A valid call for a tool in the [ToolBox] it came from.
-/// Do not pass to a different [ToolBox] than the one that created this.
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 struct ToolCall {
-    name: String,
+    function_name: String,
     parameters: Map<String, Value>,
 }
