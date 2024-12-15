@@ -29,19 +29,24 @@ pub mod toolbox_by_hand {
     const _MYTOOL_SCHEMA: LazyCell<&'static serde_json::Value> = LazyCell::new(|| {
         Box::leak(Box::new(json!(
         {
-            "tools": [
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "oneOf": [    
                 {
-                    "type": "function",
-                    "function": {
-                        "name": "greet",
+                    "type": "object",
+                    "properties": {
+                        "function_name": {
+                            "const": "greet",
+                        },
                         "description": "",
                         "parameters": *_MYTOOL_GREETING_PARAMETERS_SCHEMA
                     }
                 },
                 {
-                    "type": "function",
-                    "function": {
-                        "name": "goodbye",
+                    "type": "object",
+                    "properties": {
+                        "function_name": {
+                            "const": "goodbye",
+                        },
                         "description": "",
                         "parameters": *_MYTOOL_GOODBYE_PARAMETERS_SCHEMA
                     }
@@ -124,7 +129,7 @@ pub mod toolbox_by_hand {
         let mut toolbox: ToolBox<Box<dyn Any>, Infallible> = ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = json!({
-            "name": "greet",
+            "function_name": "greet",
             "parameters": {
                 "greeting": "This is a greeting"
             }
@@ -195,7 +200,7 @@ pub mod toolbox_different_regular_return_type {
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
-            "name": "greet",
+            "function_name": "greet",
             "parameters": {
                 "greeting": "This is a greeting"
             }
@@ -275,7 +280,7 @@ pub mod toolbox_same_regular_return_type {
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
-            "name": "greet",
+            "function_name": "greet",
             "parameters": {
                 "greeting": "This is a greeting"
             }
@@ -342,7 +347,7 @@ pub mod toolbox_same_regular_return_type_with_result {
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
-            "name": "greet",
+            "function_name": "greet",
             "parameters": {
                 "greeting": "This is a greeting"
             }
@@ -412,7 +417,7 @@ pub mod toolbox_different_ok_same_err {
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
-            "name": "greet",
+            "function_name": "greet",
             "parameters": {
                 "greeting": "This is a greeting"
             }

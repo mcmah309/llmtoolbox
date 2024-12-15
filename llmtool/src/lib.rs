@@ -610,10 +610,12 @@ fn create_tool_json_schema(
         function_schemas.push(quote! {
             serde_json::json!(
                 {
-                    "type": "function",
-                    "function": {
-                        "name": stringify!(#name),
-                        "description": stringify!(#description),
+                    "type": "object",
+                    "description": stringify!(#description),
+                    "properties": {
+                        "function_name": {
+                            "const": stringify!(#name),
+                        },
                         "parameters": *#id
                     }
                 }
@@ -625,9 +627,10 @@ fn create_tool_json_schema(
         const #id: std::cell::LazyCell<&'static serde_json::Value> = std::cell::LazyCell::new(|| {
             Box::leak(Box::new(serde_json::json!(
                 {
-                    "tools": [
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "oneOf": [    
                         #(#function_schemas),*
-                    ]
+                        ]
                 }
             )))
         });
@@ -669,7 +672,7 @@ fn create_function_parameter_json_schema(
             );
             computed_properties_outer_definitions.push(quote! {
                 let #id = (|| {
-                    let schema_settings = schemars::generate::SchemaSettings::draft2020_12();
+                    let schema_settings = schemars::generate::SchemaSettings::draft07();
                     let schema = schemars::SchemaGenerator::new(schema_settings).into_root_schema_for::<#param_type>();
                     let mut schema = schema.to_value();
                     llmtoolbox::clean_up_schema(&mut schema);

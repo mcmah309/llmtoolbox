@@ -72,11 +72,11 @@ impl<O, E> ToolBox<O, E> {
     }
 
     fn value_split_into_tool_call(&self, input: Value) -> Result<ToolCall, CallError> {
-        let name = match input.get("name") {
+        let name = match input.get("function_name") {
             Some(name) => name,
             None => {
                 return Err(CallError::new(format!(
-                    "The tool call is missing the `name` field in:\n{input}"
+                    "The tool call is missing the `function_name` field in:\n{input}"
                 )));
             }
         };
@@ -84,7 +84,7 @@ impl<O, E> ToolBox<O, E> {
             Some(name) => name,
             None => {
                 return Err(CallError::new(format!(
-                    "The tool call `name` field is not a string in:\n{input}"
+                    "The tool call `function_name` field is not a string in:\n{input}"
                 )));
             }
         };
@@ -100,7 +100,7 @@ impl<O, E> ToolBox<O, E> {
             )));
         }
         let mut map = unwrap_match!(input, Value::Object);
-        let name = map.remove("name").unwrap();
+        let name = map.remove("function_name").unwrap();
         let name = unwrap_match!(name, Value::String);
         let parameters = map.remove("parameters").unwrap();
         let parameters = unwrap_match!(parameters, Value::Object);
