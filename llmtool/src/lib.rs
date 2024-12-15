@@ -265,12 +265,12 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     Type::Path(type_path) => {
                         if type_path.path.get_ident().is_some_and(|item| &*item.to_string() == "str") {
                             Some(quote! {
-                                let #name: &str = &*serde_json::from_value::<String>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
+                                let #name: &str = &*serde_json::from_value::<String>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
                             })
                         }
                         else {
                             Some(quote! {
-                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
+                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
                             })
                         }
                     },
@@ -278,10 +278,10 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                 },
                 _ => None,
             }.unwrap_or(quote! {
-                let #name: #param_type = serde_json::from_value::<#param_type>(#name).map_err(|_| llmtoolbox::CallError::new(#serde_message.to_owned()))?;
+                let #name: #param_type = serde_json::from_value::<#param_type>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
             });
             quote! {
-                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::new(#missing_message.to_owned()))?;
+                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::parsing(#missing_message.to_owned()))?;
                 #deserialize
             }
         });
@@ -348,9 +348,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     > = {
                         match &*name {
                             #run_arms
-                            _ => return Err(llmtoolbox::CallError::new(format!(
-                                "`{name}` is not a function in this tool"
-                            ))),
+                            _ => return Err(llmtoolbox::CallError::function_not_found(name.to_owned())),
                         }
                     };
                     #[allow(unreachable_code)]

@@ -32,23 +32,29 @@ pub trait Tool<T, E> {
     // ) -> Result<Result<T, E>, CallError>;
 }
 
-/// An error related to dynamically calling a function, not runing the function.
-/// Either there was an error parsing the arguments or the function did not exist.
-#[derive(Debug)]
-pub struct CallError {
-    reason: String,
+error_set::error_set!{
+
+    /// An error related to dynamically calling a function, not runing the function.
+    /// Either there was an error parsing the arguments or the function did not exist.
+    CallError = {
+        #[display("The function with name `{function_name}` was not found in the toolbox")]
+        FunctionNotFound {
+            function_name: String,
+        },
+        /// Issue related to parsing to json or to the desired schema shape.
+        #[display("An issue occured paring against the schema:\n{issue}")]
+        Parsing {
+            issue: String,
+        }
+    };
 }
 
 impl CallError {
-    pub fn new(reason: String) -> Self {
-        Self { reason }
+    pub fn function_not_found(function_name: String) -> Self {
+        Self::FunctionNotFound { function_name }
     }
-}
 
-impl std::error::Error for CallError {}
-
-impl std::fmt::Display for CallError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CallError: {}", self.reason)
+    pub fn parsing(issue: String) -> Self {
+        Self::Parsing { issue }
     }
 }

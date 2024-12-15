@@ -102,11 +102,11 @@ pub mod toolbox_by_hand {
                 "greet" => {
                     let greeting = parameters
                         .remove("greeting")
-                        .ok_or_else(|| CallError::new("Missing `greeting` param".to_owned()))?;
+                        .ok_or_else(|| CallError::parsing("Missing `greeting` param".to_owned()))?;
                     let greeting: &str = &*serde_json::from_value::<String>(greeting)
                         .ok()
                         .ok_or_else(|| {
-                            CallError::new("`greeting` param does not follow schema ...".to_owned())
+                            CallError::parsing("`greeting` param does not follow schema ...".to_owned())
                         })?;
                     return Ok(Ok(Box::new(self.greet(&greeting))));
                 }
@@ -114,9 +114,7 @@ pub mod toolbox_by_hand {
                     return Ok(Ok(Box::new(self.goodbye())));
                 }
                 _ => {
-                    return Err(CallError::new(format!(
-                        "`{name}` is not a function in this tool"
-                    )))
+                    return Err(CallError::function_not_found(name.to_owned()))
                 }
             };
         }

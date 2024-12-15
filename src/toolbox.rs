@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use crate::{tool::Tool, utils::unwrap_match, CallError};
+use crate::{utils::unwrap_match, CallError, Tool};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
 pub struct ToolBox<O, E> {
@@ -59,15 +59,18 @@ impl<O, E> ToolBox<O, E> {
             }
         }
         let name = tool_call.name;
-        Err(CallError::new(format!(
-            "The tool with name `{name}` was not found in the toolbox"
-        )))
+        Err(CallError::FunctionNotFound {
+            function_name: name,
+        })
     }
 
     fn str_split_into_tool_call(&self, input: &str) -> Result<ToolCall, CallError> {
-        let value = serde_json::from_str::<Value>(input)
-            .ok()
-            .ok_or_else(|| CallError::new("The tool call is not valid json".to_owned()))?;
+        let value =
+            serde_json::from_str::<Value>(input)
+                .ok()
+                .ok_or_else(|| CallError::Parsing {
+                    issue: "The tool call is not valid json".to_owned(),
+                })?;
         self.value_split_into_tool_call(value)
     }
 
@@ -75,29 +78,33 @@ impl<O, E> ToolBox<O, E> {
         let name = match input.get("function_name") {
             Some(name) => name,
             None => {
-                return Err(CallError::new(format!(
-                    "The tool call is missing the `function_name` field in:\n{input}"
-                )));
+                return Err(CallError::Parsing {
+                    issue: format!(
+                        "The tool call is missing the `function_name` field in:\n{input}"
+                    ),
+                });
             }
         };
         let _ = match name.as_str() {
             Some(name) => name,
             None => {
-                return Err(CallError::new(format!(
-                    "The tool call `function_name` field is not a string in:\n{input}"
-                )));
+                return Err(CallError::Parsing {
+                    issue: format!(
+                        "The tool call `function_name` field is not a string in:\n{input}"
+                    ),
+                });
             }
         };
         let parameters = input.get("parameters");
         let Some(parameters) = parameters else {
-            return Err(CallError::new(format!(
-                "The tool call is missing the `parameters` field in:\n{input}"
-            )));
+            return Err(CallError::Parsing {
+                issue: format!("The tool call is missing the `parameters` field in:\n{input}"),
+            });
         };
         if !parameters.is_object() {
-            return Err(CallError::new(format!(
-                "The tool call `parameters` field is not an object in:\n{input}"
-            )));
+            return Err(CallError::Parsing {
+                issue: format!("The tool call `parameters` field is not an object in:\n{input}"),
+            });
         }
         let mut map = unwrap_match!(input, Value::Object);
         let name = map.remove("function_name").unwrap();

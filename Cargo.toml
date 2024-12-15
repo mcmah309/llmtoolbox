@@ -8,6 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 llmtool = { version = "=0.0.1", path = "llmtool" }
+error_set = "0.8"
 
 serde_json = "1"
 
