@@ -2,7 +2,7 @@
 pub mod toolbox_by_hand {
     use std::{any::Any, cell::LazyCell, convert::Infallible};
 
-    use llmtoolbox::{CallError, Tool, ToolBox};
+    use llmtoolbox::{FunctionCallError, Tool, ToolBox};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
@@ -93,20 +93,20 @@ pub mod toolbox_by_hand {
             _MYTOOL_SCHEMA.as_object().unwrap()
         }
 
-        async fn call(
+        async fn call_function(
             &self,
             name: &str,
             mut parameters: Map<String, Value>,
-        ) -> Result<Result<Box<dyn Any>, Infallible>, CallError> {
+        ) -> Result<Result<Box<dyn Any>, Infallible>, FunctionCallError> {
             match &*name {
                 "greet" => {
                     let greeting = parameters
                         .remove("greeting")
-                        .ok_or_else(|| CallError::parsing("Missing `greeting` param".to_owned()))?;
+                        .ok_or_else(|| FunctionCallError::parsing("Missing `greeting` param".to_owned()))?;
                     let greeting: &str = &*serde_json::from_value::<String>(greeting)
                         .ok()
                         .ok_or_else(|| {
-                            CallError::parsing("`greeting` param does not follow schema ...".to_owned())
+                            FunctionCallError::parsing("`greeting` param does not follow schema ...".to_owned())
                         })?;
                     return Ok(Ok(Box::new(self.greet(&greeting))));
                 }
@@ -114,13 +114,24 @@ pub mod toolbox_by_hand {
                     return Ok(Ok(Box::new(self.goodbye())));
                 }
                 _ => {
-                    return Err(CallError::function_not_found(name.to_owned()))
+                    return Err(FunctionCallError::function_not_found(name.to_owned()))
                 }
             };
         }
     }
 
     //************************************************************************//
+    #[derive(serde::Deserialize, serde::Serialize)]
+    enum X {
+        Y(i32),
+        Z
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct Y {
+        w: i32,
+        i: Option<u32>,
+    }
 
     #[tokio::test]
     async fn dyn_tool_works() {
@@ -132,7 +143,7 @@ pub mod toolbox_by_hand {
                 "greeting": "This is a greeting"
             }
         });
-        let message = match toolbox.call(tool_call_value).await {
+        let message = match toolbox.call_from_value(tool_call_value).await {
             Ok(Ok(tool_result)) => tool_result,
             Err(error) => panic!("{error}"),
         };
@@ -143,6 +154,14 @@ pub mod toolbox_by_hand {
             ),
             Err(_) => panic!("Not the corect type"),
         }
+        let x = X::Y(1) ;
+        // let x = Y {
+        //     w: 1,
+        //     i: None
+        // };
+        let r = serde_json::to_string_pretty(&serde_json::to_value(x).unwrap()).unwrap();
+        println!("r:\n{}", r);
+        ()
     }
 }
 
@@ -203,7 +222,7 @@ pub mod toolbox_different_regular_return_type {
                 "greeting": "This is a greeting"
             }
         });
-        let message = match toolbox.call(tool_call_value).await {
+        let message = match toolbox.call_from_value(tool_call_value).await {
             Ok(Ok(tool_result)) => tool_result,
             Err(error) => panic!("{error}"),
         };
@@ -283,7 +302,7 @@ pub mod toolbox_same_regular_return_type {
                 "greeting": "This is a greeting"
             }
         });
-        match toolbox.call(tool_call_value).await {
+        match toolbox.call_from_value(tool_call_value).await {
             Ok(Ok(tool_result)) => assert_eq!(
                 *tool_result,
                 "This is the greeting `This is a greeting`".to_owned()
@@ -350,7 +369,7 @@ pub mod toolbox_same_regular_return_type_with_result {
                 "greeting": "This is a greeting"
             }
         });
-        match toolbox.call(tool_call_value).await {
+        match toolbox.call_from_value(tool_call_value).await {
             Ok(okay) => match okay {
                 Ok(okay) => assert_eq!(
                     *okay,
@@ -420,7 +439,7 @@ pub mod toolbox_different_ok_same_err {
                 "greeting": "This is a greeting"
             }
         });
-        match toolbox.call(tool_call_value).await {
+        match toolbox.call_from_value(tool_call_value).await {
             Ok(okay) => match okay {
                 Ok(okay) => assert_eq!(
                     *okay.downcast::<String>().unwrap(),

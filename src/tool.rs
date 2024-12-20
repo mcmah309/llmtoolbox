@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use crate::CallError;
+use crate::FunctionCallError;
 
 /// Tools in a struct/enum
 // #[async_trait::async_trait]
@@ -10,14 +10,14 @@ pub trait Tool<T, E> {
     /// The schema for functions available to call for this tool
     fn schema(&self) -> &'static Map<String, Value>;
 
-    /// Runs the tool. This can never be called directly. Only called by `ToolBox`.
-    fn call<'life0, 'life1, 'async_trait>(
+    /// Runs the tool. This can never be called directly.
+    fn call_function<'life0, 'life1, 'async_trait>(
         &'life0 self,
         name: &'life1 str,
         parameters: Map<String, Value>,
     ) -> ::core::pin::Pin<
         Box<
-            dyn ::core::future::Future<Output = Result<Result<T, E>, CallError>>
+            dyn ::core::future::Future<Output = Result<Result<T, E>, FunctionCallError>>
                 + ::core::marker::Send
                 + 'async_trait,
         >,
@@ -27,9 +27,9 @@ pub trait Tool<T, E> {
         'life1: 'async_trait,
         Self: 'async_trait;
 
-    // async fn call(
+    // async fn call_function(
     //     &self,
     //     name: &str,
     //     parameters: Map<String, Value>,
-    // ) -> Result<Result<T, E>, CallError>;
+    // ) -> Result<Result<T, E>, FunctionCallError>;
 }

@@ -265,12 +265,12 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     Type::Path(type_path) => {
                         if type_path.path.get_ident().is_some_and(|item| &*item.to_string() == "str") {
                             Some(quote! {
-                                let #name: &str = &*serde_json::from_value::<String>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
+                                let #name: &str = &*serde_json::from_value::<String>(#name).map_err(|_| llmtoolbox::FunctionCallError::parsing(#serde_message.to_owned()))?;
                             })
                         }
                         else {
                             Some(quote! {
-                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
+                                let #name: #param_type = &serde_json::from_value::<#type_path>(#name).map_err(|_| llmtoolbox::FunctionCallError::parsing(#serde_message.to_owned()))?;
                             })
                         }
                     },
@@ -278,10 +278,10 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                 },
                 _ => None,
             }.unwrap_or(quote! {
-                let #name: #param_type = serde_json::from_value::<#param_type>(#name).map_err(|_| llmtoolbox::CallError::parsing(#serde_message.to_owned()))?;
+                let #name: #param_type = serde_json::from_value::<#param_type>(#name).map_err(|_| llmtoolbox::FunctionCallError::parsing(#serde_message.to_owned()))?;
             });
             quote! {
-                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::CallError::parsing(#missing_message.to_owned()))?;
+                let #name = parameters.remove(#name_str).ok_or_else(|| llmtoolbox::FunctionCallError::parsing(#missing_message.to_owned()))?;
                 #deserialize
             }
         });
@@ -310,7 +310,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                 #schema.as_object().unwrap()
             }
 
-            fn call<'life0, 'life1, 'async_trait>(
+            fn call_function<'life0, 'life1, 'async_trait>(
                 &'life0 self,
                 name: &'life1 str,
                 parameters: serde_json::Map<String, serde_json::Value>,
@@ -319,7 +319,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     dyn ::core::future::Future<
                             Output = Result<
                                 Result<#ok_type, #err_type>,
-                                llmtoolbox::CallError,
+                                llmtoolbox::FunctionCallError,
                             >,
                         > + ::core::marker::Send
                         + 'async_trait,
@@ -334,7 +334,7 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
                         Result<
                             Result<#ok_type, #err_type>,
-                            llmtoolbox::CallError,
+                            llmtoolbox::FunctionCallError,
                         >,
                     > {
                         #[allow(unreachable_code)]
@@ -344,25 +344,25 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
                     let mut parameters = parameters;
                     let __ret: Result<
                         Result<#ok_type, #err_type>,
-                        llmtoolbox::CallError,
+                        llmtoolbox::FunctionCallError,
                     > = {
                         match &*name {
                             #run_arms
-                            _ => return Err(llmtoolbox::CallError::function_not_found(name.to_owned())),
+                            _ => return Err(llmtoolbox::FunctionCallError::function_not_found(name.to_owned())),
                         }
                     };
                     #[allow(unreachable_code)]
                     __ret
                 })
             }
-            // async fn call(
+            // async fn call_function(
             //     &self,
             //     name: &str,
             //     mut parameters: serde_json::Map<String, serde_json::Value>,
-            // ) -> Result<Result<#ok_type, #err_type>, llmtoolbox::CallError> {
+            // ) -> Result<Result<#ok_type, #err_type>, llmtoolbox::FunctionCallError> {
             //     match &*name {
             //         #run_arms
-            //         _ => return Err(llmtoolbox::CallError::new(format!(
+            //         _ => return Err(llmtoolbox::FunctionCallError::new(format!(
             //             "`{name}` is not a function in this tool"
             //         ))),
             //     }

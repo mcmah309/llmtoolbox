@@ -1,6 +1,6 @@
 use serde_json::{Map, Value};
 
-use crate::{utils::unwrap_match, CallError, CallParsingError, Tool};
+use crate::{utils::unwrap_match, FunctionCallError, FunctionCallParsingError, Tool};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
 pub struct ToolBox<O, E> {
@@ -36,48 +36,48 @@ impl<O, E> ToolBox<O, E> {
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call(&self, tool_call: Value) -> Result<Result<O, E>, CallError> {
-        let tool_call = self.value_split_into_tool_call(tool_call)?;
-        self.call_from_tool_call(tool_call).await
+    pub async fn call_from_value(&self, function_call: Value) -> Result<Result<O, E>, FunctionCallError> {
+        let function_call = self.into_function_call_from_value(function_call)?;
+        self.call_from_args(function_call).await
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call_from_str(&self, tool_call: &str) -> Result<Result<O, E>, CallError> {
-        let tool_call = self.str_split_into_tool_call(tool_call)?;
-        self.call_from_tool_call(tool_call).await
+    pub async fn call_from_str(&self, function_call: &str) -> Result<Result<O, E>, FunctionCallError> {
+        let function_call = self.into_function_call_from_str(function_call)?;
+        self.call_from_args(function_call).await
     }
 
-    async fn call_from_tool_call(&self, tool_call: ToolCall) -> Result<Result<O, E>, CallError> {
+    async fn call_from_args(&self, function_call: FunctionCallArgs) -> Result<Result<O, E>, FunctionCallError> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
-                if *function_name == tool_call.function_name {
+                if *function_name == function_call.function_name {
                     return tool
-                        .call(&tool_call.function_name, tool_call.parameters)
+                        .call_function(&function_call.function_name, function_call.parameters)
                         .await
                         .map_err(|err| err.into());
                 }
             }
         }
-        Err(CallError::FunctionNotFound {
-            function_name: tool_call.function_name,
+        Err(FunctionCallError::FunctionNotFound {
+            function_name: function_call.function_name,
         })
     }
 
-    fn str_split_into_tool_call(&self, input: &str) -> Result<ToolCall, CallParsingError> {
+    fn into_function_call_from_str(&self, input: &str) -> Result<FunctionCallArgs, FunctionCallParsingError> {
         let value =
             serde_json::from_str::<Value>(input)
                 .ok()
-                .ok_or_else(|| CallParsingError::Parsing {
+                .ok_or_else(|| FunctionCallParsingError::Parsing {
                     issue: "The tool call is not valid json".to_owned(),
                 })?;
-        self.value_split_into_tool_call(value)
+        self.into_function_call_from_value(value)
     }
 
-    fn value_split_into_tool_call(&self, input: Value) -> Result<ToolCall, CallParsingError> {
+    fn into_function_call_from_value(&self, input: Value) -> Result<FunctionCallArgs, FunctionCallParsingError> {
         let name = match input.get("function_name") {
             Some(name) => name,
             None => {
-                return Err(CallParsingError::Parsing {
+                return Err(FunctionCallParsingError::Parsing {
                     issue: format!(
                         "The tool call is missing the `function_name` field in:\n{input}"
                     ),
@@ -87,7 +87,7 @@ impl<O, E> ToolBox<O, E> {
         let _ = match name.as_str() {
             Some(name) => name,
             None => {
-                return Err(CallParsingError::Parsing {
+                return Err(FunctionCallParsingError::Parsing {
                     issue: format!(
                         "The tool call `function_name` field is not a string in:\n{input}"
                     ),
@@ -96,12 +96,12 @@ impl<O, E> ToolBox<O, E> {
         };
         let parameters = input.get("parameters");
         let Some(parameters) = parameters else {
-            return Err(CallParsingError::Parsing {
+            return Err(FunctionCallParsingError::Parsing {
                 issue: format!("The tool call is missing the `parameters` field in:\n{input}"),
             });
         };
         if !parameters.is_object() {
-            return Err(CallParsingError::Parsing {
+            return Err(FunctionCallParsingError::Parsing {
                 issue: format!("The tool call `parameters` field is not an object in:\n{input}"),
             });
         }
@@ -110,7 +110,7 @@ impl<O, E> ToolBox<O, E> {
         let name = unwrap_match!(name, Value::String);
         let parameters = map.remove("parameters").unwrap();
         let parameters = unwrap_match!(parameters, Value::Object);
-        return Ok(ToolCall { function_name: name, parameters });
+        return Ok(FunctionCallArgs { function_name: name, parameters });
     }
 
     //************************************************************************//
@@ -122,7 +122,7 @@ impl<O, E> ToolBox<O, E> {
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-struct ToolCall {
+struct FunctionCallArgs {
     function_name: String,
     parameters: Map<String, Value>,
 }
