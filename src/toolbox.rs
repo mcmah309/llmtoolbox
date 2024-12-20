@@ -47,7 +47,7 @@ impl<O, E> ToolBox<O, E> {
         self.call_from_args(function_call).await
     }
 
-    async fn call_from_args(&self, function_call: FunctionCallArgs) -> Result<Result<O, E>, FunctionCallError> {
+    pub async fn call_from_args(&self, function_call: FunctionCallArgs) -> Result<Result<O, E>, FunctionCallError> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
                 if *function_name == function_call.function_name {
@@ -63,7 +63,7 @@ impl<O, E> ToolBox<O, E> {
         })
     }
 
-    fn into_function_call_from_str(&self, input: &str) -> Result<FunctionCallArgs, FunctionCallParsingError> {
+    pub fn into_function_call_from_str(&self, input: &str) -> Result<FunctionCallArgs, FunctionCallParsingError> {
         let value =
             serde_json::from_str::<Value>(input)
                 .ok()
@@ -73,7 +73,7 @@ impl<O, E> ToolBox<O, E> {
         self.into_function_call_from_value(value)
     }
 
-    fn into_function_call_from_value(&self, input: Value) -> Result<FunctionCallArgs, FunctionCallParsingError> {
+    pub fn into_function_call_from_value(&self, input: Value) -> Result<FunctionCallArgs, FunctionCallParsingError> {
         let name = match input.get("function_name") {
             Some(name) => name,
             None => {
@@ -122,7 +122,7 @@ impl<O, E> ToolBox<O, E> {
 
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-struct FunctionCallArgs {
+pub struct FunctionCallArgs {
     function_name: String,
     parameters: Map<String, Value>,
 }
