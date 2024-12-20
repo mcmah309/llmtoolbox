@@ -129,7 +129,7 @@ checksum = "09d6582e104315a817dff97f75133544b2e094ee22447d2acf4a74e189ba06fc"
 
 [[package]]
 name = "llmtool"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "llmtoolbox"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "error_set",
