@@ -3,14 +3,14 @@ use serde_json::{Map, Value};
 use crate::{utils::unwrap_match, FunctionCallError, FunctionCallParsingError, Tool};
 
 /// A toolbox is a collection of tools that can be called by name with arguments.
-pub struct ToolBox<O, E> {
+pub struct ToolBox<T> where T: Tool + 'static {
     /// all the tools that the llm can call
-    all_tools: Vec<Box<dyn Tool<O, E>>>,
+    all_tools: Vec<Box<T>>,
     /// schema to be sent to the llm
     schema: Map<String, Value>,
 }
 
-impl<O, E> ToolBox<O, E> {
+impl<T> ToolBox<T> where T: Tool + 'static {
     pub fn new() -> Self {
         Self {
             all_tools: Vec::new(),
@@ -22,7 +22,7 @@ impl<O, E> ToolBox<O, E> {
 
     /// Adds the `tool` to this [`Toolbox`]. If a tool with the same name already exists, will return
     /// Err with the tool.
-    pub fn add_tool<T: Tool<O, E> + 'static>(&mut self, tool: T) -> Result<(), T> {
+    pub fn add_tool(&mut self, tool: T) -> Result<(), T> {
         for existing_function_name in self.all_tools.iter().map(|e| e.function_names()).flatten() {
             for new_function_name in tool.function_names() {
                 if existing_function_name == new_function_name {
@@ -36,18 +36,18 @@ impl<O, E> ToolBox<O, E> {
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call_from_value(&self, function_call: Value) -> Result<Result<O, E>, FunctionCallError> {
+    pub async fn call_from_value(&self, function_call: Value) -> Result<Result<T::Output, T::Error>, FunctionCallError> {
         let function_call = self.into_function_call_from_value(function_call)?;
         self.call_from_args(function_call).await
     }
 
     /// Calls the tool with the given name and parameters.
-    pub async fn call_from_str(&self, function_call: &str) -> Result<Result<O, E>, FunctionCallError> {
+    pub async fn call_from_str(&self, function_call: &str) -> Result<Result<T::Output, T::Error>, FunctionCallError> {
         let function_call = self.into_function_call_from_str(function_call)?;
         self.call_from_args(function_call).await
     }
 
-    pub async fn call_from_args(&self, function_call: FunctionCallArgs) -> Result<Result<O, E>, FunctionCallError> {
+    pub async fn call_from_args(&self, function_call: FunctionCallArgs) -> Result<Result<T::Output, T::Error>, FunctionCallError> {
         for tool in &self.all_tools {
             for function_name in tool.function_names() {
                 if *function_name == function_call.function_name {
