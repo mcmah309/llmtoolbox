@@ -65,7 +65,11 @@ pub fn tool(
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let mut input = parse_macro_input!(item as ItemImpl);
-    let struct_name = &input.self_ty;
+    let struct_name = match &*input.self_ty {
+            Type::Path(type_path) => &type_path.path.segments.last().unwrap().ident,
+            _ => panic!("Invalid impl type"),
+        };
+    let generics = &input.generics;
     let struct_name_str = struct_name.to_token_stream().to_string();
     
     let methods: Vec<_> = input
@@ -133,7 +137,7 @@ pub fn tool(
         create_function_parameter_json_schema(&struct_name_str, function_definition)
     }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
 
-    let impl_traits = impl_traits(&struct_name, &struct_name_str, &function_definitions);
+    let impl_traits = impl_traits(&struct_name, &struct_name_str, generics, &function_definitions);
 
     let expanded = quote! {
         #input
@@ -162,7 +166,7 @@ impl<'a> CommonReturnTypes<'a> {
     }
 }
 
-fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definitions: &Vec<FunctionDefintion>) -> TokenStream {
+fn impl_traits(struct_name: &syn::Ident, struct_name_str: &str, generics: &syn::Generics, function_definitions: &Vec<FunctionDefintion>) -> TokenStream {
     let mut common_return_types = CommonReturnTypes::new();
     for function_definition in function_definitions.iter() {
         match &function_definition.return_type {
@@ -205,12 +209,12 @@ fn impl_traits(struct_name: &syn::Type, struct_name_str: &str, function_definiti
     };
     for impl_needed in impls_needed {
         let tokens = match impl_needed {
-            ImplTypes::BoxAndBox => impl_trait(struct_name, struct_name_str, function_definitions, true, true, &box_any_type, &box_error_type),
-            ImplTypes::BoxAndSpecific(err_type) => impl_trait(struct_name, struct_name_str, function_definitions, true, false, &box_any_type, &err_type.to_token_stream()),
-            ImplTypes::SpecificAndBox(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, true, &ok_type.to_token_stream(), &box_error_type),
-            ImplTypes::SpecificAndSpecific(ok_type, err_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, false, &ok_type.to_token_stream(), &err_type.to_token_stream()),
-            ImplTypes::BoxAndInfallible => impl_trait(struct_name, struct_name_str, function_definitions, true, false, &box_any_type, &infallible_type),
-            ImplTypes::SpecificAndInfallible(ok_type) => impl_trait(struct_name, struct_name_str, function_definitions, false, false, &ok_type.to_token_stream(), &infallible_type),
+            ImplTypes::BoxAndBox => impl_trait(struct_name, struct_name_str, generics,function_definitions, true, true, &box_any_type, &box_error_type),
+            ImplTypes::BoxAndSpecific(err_type) => impl_trait(struct_name, struct_name_str, generics,function_definitions, true, false, &box_any_type, &err_type.to_token_stream()),
+            ImplTypes::SpecificAndBox(ok_type) => impl_trait(struct_name, struct_name_str, generics,function_definitions, false, true, &ok_type.to_token_stream(), &box_error_type),
+            ImplTypes::SpecificAndSpecific(ok_type, err_type) => impl_trait(struct_name, struct_name_str, generics,function_definitions, false, false, &ok_type.to_token_stream(), &err_type.to_token_stream()),
+            ImplTypes::BoxAndInfallible => impl_trait(struct_name, struct_name_str, generics,function_definitions, true, false, &box_any_type, &infallible_type),
+            ImplTypes::SpecificAndInfallible(ok_type) => impl_trait(struct_name, struct_name_str, generics,function_definitions, false, false, &ok_type.to_token_stream(), &infallible_type),
         };
         all_impl_tokens.append_all(tokens);
     }
@@ -245,7 +249,7 @@ fn determine_impls_needed(common_ok_type: Option<Type>, common_err_type: Option<
     vecs
 }
 
-fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definitions: &Vec<FunctionDefintion>, ok_needs_box: bool, err_needs_box: bool, ok_type: &TokenStream, err_type: &TokenStream) -> TokenStream {
+fn impl_trait(struct_name: &syn::Ident, struct_name_str:&str, generics: &syn::Generics, function_definitions: &Vec<FunctionDefintion>, ok_needs_box: bool, err_needs_box: bool, ok_type: &TokenStream, err_type: &TokenStream) -> TokenStream {
     let function_names = function_definitions.iter().map(|function_definition| {
         &function_definition.name_str
     });
@@ -297,9 +301,10 @@ fn impl_trait(struct_name: &syn::Type, struct_name_str:&str, function_definition
     }).fold(TokenStream::new(), |mut acc, item| { acc.append_all(item); acc });
 
     let schema = create_tool_schema_const_indentifier(struct_name_str);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     quote! {
         //#[async_trait::async_trait]
-        impl llmtoolbox::Tool<#ok_type, #err_type> for #struct_name {
+        impl #impl_generics llmtoolbox::Tool<#ok_type, #err_type> for #struct_name #ty_generics #where_clause {
             fn function_names(&self) -> &[&'static str] {
                 &[
                     #(#function_names),*

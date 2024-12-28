@@ -1,16 +1,19 @@
 #[cfg(test)]
 pub mod toolbox_by_hand {
-    use std::{any::Any, cell::LazyCell, convert::Infallible};
+    use std::{any::Any, cell::LazyCell, convert::Infallible, fmt::Display};
 
     use llmtoolbox::{FunctionCallError, Tool, ToolBoxLocal};
     use serde_json::{json, Map, Value};
 
     #[derive(Debug)]
-    struct MyTool;
+    struct MyTool<T: Display + Sync> {
+        #[allow(dead_code)]
+        display: T,
+    }
 
-    impl MyTool {
-        fn new() -> Self {
-            Self
+    impl<T: Display + Sync> MyTool<T> {
+        fn new(display: T) -> Self {
+            Self { display }
         }
 
         fn greet(&self, greeting: &str) -> String {
@@ -84,7 +87,7 @@ pub mod toolbox_by_hand {
     // Note: Infallible since `greet` and `goodbye` do not return a result. `Box<dyn Any>` since
     // `greet` and `goodbye` have different return types
     #[async_trait::async_trait]
-    impl Tool<Box<dyn Any>, Infallible> for MyTool {
+    impl<T: Display + Sync> Tool<Box<dyn Any>, Infallible> for MyTool<T> {
         fn function_names(&self) -> &[&'static str] {
             &["greet", "goodbye"]
         }
@@ -136,7 +139,7 @@ pub mod toolbox_by_hand {
     #[tokio::test]
     async fn dyn_tool_works() {
         let mut toolbox: ToolBoxLocal<Box<dyn Any>, Infallible> = ToolBoxLocal::new();
-        toolbox.add_tool(MyTool::new()).unwrap();
+        toolbox.add_tool(MyTool::new("".to_owned())).unwrap();
         let tool_call_value = json!({
             "function_name": "greet",
             "parameters": {
@@ -210,11 +213,15 @@ pub mod toolbox_different_regular_return_type {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            Box<dyn std::error::Error>,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, std::convert::Infallible> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            std::convert::Infallible,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let tool_call_value = serde_json::json!({
             "function_name": "greet",
@@ -242,12 +249,9 @@ pub mod toolbox_different_regular_return_type {
 
     #[tokio::test]
     async fn thread_safe_test() {
-        assert_send_sync::<
-            llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>>,
-        >();
-        assert_send_sync::<
-            llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible>,
-        >();
+        assert_send_sync::<llmtoolbox::ToolBox<Box<dyn std::any::Any>, Box<dyn std::error::Error>>>(
+        );
+        assert_send_sync::<llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible>>();
         let mut toolbox: llmtoolbox::ToolBox<Box<dyn std::any::Any>, std::convert::Infallible> =
             llmtoolbox::ToolBox::new();
         toolbox.add_tool(MyTool::new()).unwrap();
@@ -316,11 +320,15 @@ pub mod toolbox_same_regular_return_type {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            Box<dyn std::error::Error>,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, std::convert::Infallible> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            std::convert::Infallible,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBoxLocal<String, Box<dyn std::error::Error>> =
             llmtoolbox::ToolBoxLocal::new();
@@ -389,8 +397,10 @@ pub mod toolbox_same_regular_return_type_with_result {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            Box<dyn std::error::Error>,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBoxLocal<String, Box<dyn std::error::Error>> =
             llmtoolbox::ToolBoxLocal::new();
@@ -459,8 +469,10 @@ pub mod toolbox_different_ok_same_err {
 
     #[tokio::test]
     async fn test_it() {
-        let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, Box<dyn std::error::Error>> =
-            llmtoolbox::ToolBoxLocal::new();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            Box<dyn std::error::Error>,
+        > = llmtoolbox::ToolBoxLocal::new();
         toolbox.add_tool(MyTool::new()).unwrap();
         let mut toolbox: llmtoolbox::ToolBoxLocal<Box<dyn std::any::Any>, std::io::Error> =
             llmtoolbox::ToolBoxLocal::new();
@@ -484,5 +496,90 @@ pub mod toolbox_different_ok_same_err {
             },
             Err(error) => panic!("{error}"),
         };
+    }
+}
+
+#[cfg(test)]
+pub mod generics {
+    use std::fmt::Display;
+
+
+    #[derive(Debug)]
+    struct MyTool<T: Display + Sync> {
+        #[allow(dead_code)]
+        display: T,
+    }
+
+    #[llmtool::tool]
+    impl<T: Display + Sync> MyTool<T> {
+        fn new(display: T ) -> Self {
+            Self {
+                display
+            }
+        }
+
+        /// This
+        /// `greeting` - descr
+        #[tool_part]
+        fn greet(&self, greeting: &str) -> String {
+            println!("Greetings!");
+            format!("This is the greeting `{greeting}`")
+        }
+
+        #[allow(dead_code)]
+        fn goodbye(&self) -> u32 {
+            println!("Goodbye!");
+            1
+        }
+
+        /// func descrip
+        /// `topic` - field description
+        #[tool_part]
+        async fn talk(&self, topic: ConverstationTopic) -> u32 {
+            let ConverstationTopic { topic, opinion } = topic;
+            println!("For {topic} it is {opinion}");
+            0
+        }
+    }
+
+    /// Description
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
+    pub struct ConverstationTopic {
+        pub topic: String,
+        pub opinion: String,
+    }
+
+    #[tokio::test]
+    async fn test_it() {
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            Box<dyn std::error::Error>,
+        > = llmtoolbox::ToolBoxLocal::new();
+        toolbox.add_tool(MyTool::new("")).unwrap();
+        let mut toolbox: llmtoolbox::ToolBoxLocal<
+            Box<dyn std::any::Any>,
+            std::convert::Infallible,
+        > = llmtoolbox::ToolBoxLocal::new();
+        toolbox.add_tool(MyTool::new("")).unwrap();
+        let tool_call_value = serde_json::json!({
+            "function_name": "greet",
+            "parameters": {
+                "greeting": "This is a greeting"
+            }
+        });
+        let message = match toolbox.call_from_value(tool_call_value).await {
+            Ok(Ok(tool_result)) => tool_result,
+            Err(error) => panic!("{error}"),
+        };
+        match message.downcast::<String>() {
+            Ok(message) => assert_eq!(
+                *message,
+                "This is the greeting `This is a greeting`".to_owned()
+            ),
+            Err(_) => panic!("Not the corect type"),
+        }
+        let _schema = &*_MYTOOL_TALK_PARMETER_SCHEMA;
+        let schema = &*_MYTOOL_SCHEMA;
+        let _schema = serde_json::to_string_pretty(&schema).unwrap();
     }
 }
